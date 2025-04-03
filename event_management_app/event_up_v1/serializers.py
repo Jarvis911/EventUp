@@ -13,12 +13,14 @@ class BaseSerializer(ModelSerializer):
         return d
 
 
+# Serializer for EventType
 class EventTypeSerializer(ModelSerializer):
     class Meta:
         model = EventType
         fields = ['id', 'name']
 
 
+# Serializer for Event
 class EventSerializer(BaseSerializer):
     class Meta:
         model = Event
@@ -62,3 +64,30 @@ class EventSerializer(BaseSerializer):
         instance.save()
 
         return instance
+
+
+# Serializer for user
+class UserSerializer(ModelSerializer):
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['avatar'] = instance.avatar.url if instance.avatar else None
+        return data
+
+    class Meta:
+        model = User
+        fields = ['username', 'password', 'first_name', 'last_name', 'avatar']
+        extra_kwargs = {
+            'password': {
+                'write_only': True
+            }
+        }
+
+    # Encrypt password before save to database
+    def create(self, validated_data):
+        data = validated_data.copy()
+        u = User(**data)
+        u.set_password(u.password)
+        u.save()
+
+        return u
+

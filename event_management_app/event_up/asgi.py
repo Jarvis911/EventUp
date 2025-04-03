@@ -1,5 +1,5 @@
 """
-ASGI config for event_management_app project.
+ASGI config for event_up project.
 
 It exposes the ASGI callable as a module-level variable named ``application``.
 
@@ -11,6 +11,6 @@ import os
 
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'event_management_app.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'event_up.settings')
 
 application = get_asgi_application()

@@ -36,11 +36,22 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'event_management_app_v1',
+    'event_up_v1',
     'ckeditor',
     'ckeditor_uploader',
     'drf_yasg',
+    'oauth2_provider',
 ]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    )
+}
 
 CKEDITOR_UPLOAD_PATH = "ckeditors/events/"  # Thư mục lưu ảnh và file tải lên
 
@@ -61,9 +72,10 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'oauth2_provider.middleware.OAuth2TokenMiddleware',
 ]
 
-ROOT_URLCONF = 'event_management_app.urls'
+ROOT_URLCONF = 'event_up.urls'
 
 # Configuration
 cloudinary.config(
@@ -75,7 +87,7 @@ cloudinary.config(
 
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 
-AUTH_USER_MODEL = 'event_management_app_v1.User'
+AUTH_USER_MODEL = 'event_up_v1.User'
 
 TEMPLATES = [
     {
@@ -93,7 +105,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'event_management_app.wsgi.application'
+WSGI_APPLICATION = 'event_up.wsgi.application'
 
 
 # Database
@@ -145,3 +157,22 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Authentication with OAuth2 and User
+AUTHENTICATION_BACKENDS = (
+    'oauth2_provider.backends.OAuth2Backend',
+    'django.contrib.auth.backends.ModelBackend',
+)
+
+OAUTH2_PROVIDER = {
+    # 'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
+
+    'SCOPES': {
+        'read': 'Read scope',
+        'write': 'Write scope',
+    },
+    'DEFAULT_SCOPES': ['read', 'write'],
+}
+
+CLIENT_ID = 'BkQBEw0KaJ20jBgpRCLOyXaYY2kFMbpVMUeNYFJO'
+CLIENT_SECRET = 'eLLHymg7jUjS6C5h3s0nzLlHMjkp6m2gDyaLgcuzxrFsPbSUzrJZ6kwZenhhSuYuHkicaLoWhmsNQjdxlGVbXG7Jx47s4CEAA33IAC3R3BUo8RtwymdXg8TKOlsc8so0'
