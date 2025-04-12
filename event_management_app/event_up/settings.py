@@ -24,7 +24,11 @@ SECRET_KEY = 'django-insecure-(*r_4w(vgrj=4pkz@66$*f)5mr+wk64i^pn=hc+q1hm9yc34g!
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
+
+CSRF_TRUSTED_ORIGINS = [
+    'https://7601-42-118-184-45.ngrok-free.app',
+]
 
 # Application definition
 
@@ -176,3 +180,20 @@ OAUTH2_PROVIDER = {
 
 CLIENT_ID = 'BkQBEw0KaJ20jBgpRCLOyXaYY2kFMbpVMUeNYFJO'
 CLIENT_SECRET = 'eLLHymg7jUjS6C5h3s0nzLlHMjkp6m2gDyaLgcuzxrFsPbSUzrJZ6kwZenhhSuYuHkicaLoWhmsNQjdxlGVbXG7Jx47s4CEAA33IAC3R3BUo8RtwymdXg8TKOlsc8so0'
+
+# Sending notifications through email config
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'triho753@gmail.com'
+EMAIL_HOST_PASSWORD = 'kxod ytzu yzmp xfno'
+DEFAULT_FROM_EMAIL = 'Event Up <triho753@gmail.com>'
+
+# MOMO test
+# MOMO_PARTNER_CODE = "MOMOBKUN20180529"
+# MOMO_ACCESS_KEY = "F8BBA842ECF85"
+# MOMO_SECRET_KEY = "K951B6PE1waDMi640xX08PD3vg6EkVlz"
+# MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
+# MOMO_IPN_URL = "https://your-domain.com/momo/ipn/"  # Dùng ngrok
+# MOMO_REDIRECT_URL = "https://your-domain.com/momo/return/"

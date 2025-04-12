@@ -1,5 +1,5 @@
 from django.contrib import admin, messages
-from .models import User, Event, EventType, Ticket, Invoice
+from .models import User, Event, EventType, Ticket, Invoice, Discount, Review, Notification
 from django.contrib.auth.admin import UserAdmin
 from ckeditor_uploader.widgets import CKEditorUploadingWidget
 from django.utils.safestring import mark_safe
@@ -41,6 +41,14 @@ class CustomUserAdmin(UserAdmin):
         return "No image is available"
 
 
+class ReviewInLine(admin.TabularInline):
+    model = Review
+    extra = 0
+    fields = ['participant_id', 'rating', 'comment']
+    readonly_fields = ['participant_id', 'rating', 'comment']
+    can_delete = True
+
+
 class EventAdmin(admin.ModelAdmin):
     list_display = ['id', 'organizer_id', 'event_type_id', 'title', 'description', 'start_time',
                     'end_time', 'location', 'ticket_quantity', 'ticket_price']
@@ -50,6 +58,7 @@ class EventAdmin(admin.ModelAdmin):
     search_fields = ['title']
     list_filter = ['id', 'start_time', 'end_time']
     readonly_fields = ['image_view', 'latitude', 'longitude']
+    inlines = [ReviewInLine]
     form = EventForm
 
     @staticmethod
@@ -92,8 +101,15 @@ class TicketInLine(admin.TabularInline):
     max_num = 0
     can_delete = False
     can_add = False
-    readonly_fields = ['qr_code', 'status', 'checked_in_at', 'created_date']
+    fields = ['qr_code_view', 'status', 'checked_in_at', 'created_date']
+    readonly_fields = ['qr_code_view', 'status', 'checked_in_at', 'created_date']
     show_change_link = True
+
+    def qr_code_view(self, obj):
+        if obj.qr_code:
+            return mark_safe(f"<img src='{obj.qr_code.url}' width='50' />")
+        return "No QR Code"
+    qr_code_view.short_description = 'QR Code'
 
 
 class TicketAdmin(admin.ModelAdmin):
@@ -114,7 +130,7 @@ class TicketAdmin(admin.ModelAdmin):
     # Show image to admin view
     def qr_code_view(ticket):
         if ticket:
-            return mark_safe(f"<img src='/media/{ticket.qr_code.name}' width='80' />")
+            return mark_safe(f"<img src='{ticket.qr_code.url}' width='80' />")
 
     def check_in_tickets(self, request, queryset):
         for ticket in queryset.filter(status='booked'):
@@ -143,7 +159,7 @@ class InvoiceAdmin(admin.ModelAdmin):
     fields = ['user_id', 'event_id', 'discount_id', 'ticket_count', 'amount', 'discount_amount', 'final_amount', 'payment_status']
     readonly_fields = ['amount', 'discount_amount', 'final_amount', 'payment_status']
     search_fields = ['event_id', 'user_id']
-    list_filter = ['payment_status']
+    list_filter = ['payment_status', 'final_amount']
     inlines = [TicketInLine]
     actions = ['mark_as_paid']
 
@@ -160,6 +176,20 @@ class InvoiceAdmin(admin.ModelAdmin):
         self.message_user(request, f"{updated} invoices processed")
 
 
+class ReviewAdmin(admin.ModelAdmin):
+    list_display = ['participant_id', 'event_id', 'rating', 'comment']
+    fields = ['participant_id', 'event_id', 'rating', 'comment']
+    search_fields = ['rating']
+    list_filter = ['rating', 'created_date']
+
+
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ['participant_id', 'title', 'message', 'is_read', 'sent_at']
+    fields = ['participant_id', 'title', 'message']
+    search_fields = ['participant_id']
+    list_filter = ['sent_at', 'title']
+
+
 admin.site.site_header = 'EventUp Admin Site'
 admin.site.site_title = 'EventUp Site'
 admin.site.index_title = 'EventUp Site'
@@ -171,3 +201,6 @@ admin.site.register(Event, EventAdmin)
 admin.site.register(EventType, EventTypeAdmin)
 admin.site.register(Ticket, TicketAdmin)
 admin.site.register(Invoice, InvoiceAdmin)
+admin.site.register(Discount, DiscountAdmin)
+admin.site.register(Review, ReviewAdmin)
+admin.site.register(Notification, NotificationAdmin)

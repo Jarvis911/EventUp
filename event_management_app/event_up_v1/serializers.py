@@ -24,7 +24,7 @@ class EventTypeSerializer(ModelSerializer):
 class EventSerializer(BaseSerializer):
     class Meta:
         model = Event
-        fields = ['id', 'title', 'event_type_id', 'organizer_id', 'description', 'date_time', 'location',
+        fields = ['id', 'title', 'event_type_id', 'organizer_id', 'description', 'start_time', 'end_time', 'location',
                   'image', 'ticket_quantity', 'ticket_price', 'latitude', 'longitude']
 
     # Calling API to update latitude and longitude when change location from API request
@@ -68,6 +68,12 @@ class EventSerializer(BaseSerializer):
 
 # Serializer for user
 class UserSerializer(ModelSerializer):
+    role = serializers.ChoiceField(
+        choices=[('participant', 'Participant'), ('organizer', 'Organizer')],
+        default='participant'
+    )
+    avatar = serializers.ImageField(required=False, allow_null=True)
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['avatar'] = instance.avatar.url if instance.avatar else None
@@ -75,21 +81,41 @@ class UserSerializer(ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'password', 'first_name', 'last_name', 'avatar']
+        fields = ['username', 'password', 'first_name', 'last_name', 'role', 'membership_tier', 'avatar']
         extra_kwargs = {
-            'password': {
-                'write_only': True
-            }
+            'password': {'write_only': True},
+            'email': {'required': True},
+            'membership_tier': {'read_only': True}
         }
 
     # Encrypt password before save to database
     def create(self, validated_data):
-        data = validated_data.copy()
-        u = User(**data)
-        u.set_password(u.password)
-        u.save()
+        avatar = validated_data.pop('avatar', None)
 
-        return u
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            password=validated_data['password'],
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            role=validated_data['role']
+        )
+
+        if avatar:
+            user.avatar = avatar
+        user.save()
+
+        return user
+
+    def update(self, instance, validated_data):
+        if 'password' in validated_data:
+            instance.set_password(validated_data.pop('password'))
+        if 'avatar' in validated_data:
+            instance.avatar = validated_data.pop('avatar')
+        return super().update(instance, validated_data)
 
 
-
+class TicketSerializer(ModelSerializer):
+    class Meta:
+        model = Ticket
+        fields = ['']

@@ -1,8 +1,10 @@
+import cloudinary.uploader
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from cloudinary.models import CloudinaryField
 from ckeditor.fields import RichTextField
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 # Generate qr code
 import qrcode
 from io import BytesIO
@@ -89,6 +91,14 @@ class Event(BaseModel):
     def __str__(self):
         return self.title
 
+    # Process validated data
+    def clean(self):
+        if self.end_time < self.start_time:
+            raise ValidationError({
+                'end_time': 'End time must be greater than or equal to start time.'
+            })
+        super().clean()
+
 
 # Discount for each different membership tier
 class Discount(BaseModel):
@@ -103,6 +113,13 @@ class Discount(BaseModel):
 
     def __str__(self):
         return self.discount_code
+
+    def clean(self):
+        if self.valid_until < self.valid_from:
+            raise ValidationError({
+                'valid_until': 'Valid until must be greater than or equal to valid from.'
+            })
+        super().clean()
 
 
 # Invoice
@@ -162,13 +179,21 @@ class Invoice(models.Model):
             if was_pending and self.payment_status == 'success':
                 update_user_membership(self.user_id)
 
+                # Send notification to user after ticket was paying successfully
+                from .utils import send_notification
+                send_notification(
+                    user=self.user_id,
+                    title=f"Payment Completed for {self.event_id.title}",
+                    message=f"Hi {self.user_id.first_name}, \nYour payment of {self.final_amount} for {self.event_id.title} is completed. Invoice code: {self.invoice_code}"
+                )
+
 
 # Each ticket have a qr code
 class Ticket(BaseModel):
     invoice_id = models.ForeignKey(Invoice, on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(max_length=20, choices=(('booked', 'Booked'), ('checked-in', 'Checked-in')),
                               default='booked')
-    qr_code = models.ImageField(upload_to='qr_codes', blank=True)
+    qr_code = CloudinaryField('qr_codes', blank=True)
     checked_in_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -183,23 +208,51 @@ class Ticket(BaseModel):
 
     def save(self, *args, **kwargs):
         is_new = not self.pk
-        if is_new:
+        # Only create qr code 1 time at first save
+        if is_new and not self.qr_code:
             super().save(*args, **kwargs)
-            if not self.qr_code:
-                qr_code_data = self.generate_qr_code_data()
-                qrcode_img = qrcode.make(str(qr_code_data))
-                qrcode_img = qrcode_img.convert("RGB")
-                canvas = Image.new('RGB', (250, 250), 'white')
-                draw = ImageDraw.Draw(canvas)
-                canvas.paste(qrcode_img)
-                fname = f'qr_code-{self.id}.png'
-                buffer = BytesIO()
-                canvas.save(buffer, 'PNG')
-                self.qr_code.save(fname, File(buffer), save=False)
-                canvas.close()
+            qr = qrcode.QRCode (
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=0
+            )
+            qr.add_data(str(self.generate_qr_code_data()))
+            qr.make(fit=True)
+            qrcode_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+            qr_size = 200
+            qrcode_img = qrcode_img.resize((qr_size, qr_size), Image.Resampling.LANCZOS)
+
+            canvas_size = 250
+            canvas = Image.new('RGB', (canvas_size, canvas_size), 'white')
+            paste_position = ((canvas_size - qr_size) // 2, (canvas_size - qr_size) // 2)
+            canvas.paste(qrcode_img, paste_position)
+
+            buffer = BytesIO()
+            canvas.save(buffer, 'PNG')
+            buffer.seek(0)
+            upload_result = cloudinary.uploader.upload(
+                buffer,
+                folder='qr_codes',
+                public_id=f'qr-code-{self.id}',
+                resource_type='image',
+                overwrite=True
+            )
+            self.qr_code = upload_result['public_id']
+            canvas.close()
             super().save(update_fields=['qr_code'])
+
+            # Send notification to user after ticket created
+            from .utils import send_notification
+            event = self.invoice_id.event_id
+            send_notification(
+                user=self.invoice_id.user_id,
+                title=f"Ticket purchased for {event.title}",
+                message=f"Hi {self.invoice_id.user_id.first_name}, \nYou've successfully purchased a ticket for {event.title} on {event.start_time}."
+            )
         else:
             super().save(*args, **kwargs)
+
 
 # Review from 1 to 5, with comment followed
 class Review(BaseModel):
@@ -207,37 +260,44 @@ class Review(BaseModel):
     participant_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'participant'}, null=False)
     event_id = models.ForeignKey(Event, on_delete=models.CASCADE, null=False)
     rating = models.DecimalField(max_digits=1, decimal_places=0, null=False,
-                                 validators=[MinValueValidator(1), MaxValueValidator(5)])
+                                 validators=[MinValueValidator(1), MaxValueValidator(5)],
+                                 help_text="Rating from 1 to 5 stars")
     comment = RichTextField()
 
     class Meta:
+        # Each participant reviews 1 time for each event
+        unique_together = ('participant_id', 'event_id')
         ordering = ['id']
 
+    def clean(self):
+        if not Invoice.objects.filter(event_id=self.event_id, user_id=self.participant_id, payment_status='success').exists():
+            raise ValidationError("User must buy ticket to review this event")
+        super().clean()
+
     def __str__(self):
-        return f"Participant: {self.participant_id.full_name} - Event: {self.event_id.title} - Rating: {self.rating}"
+        return f"Participant: {self.participant_id.first_name} - Event: {self.event_id.title}"
+
+    def save(self, *args, **kwargs):
+        # Only if a participant have buy ticket can review
+        if not Invoice.objects.filter(event_id=self.event_id, user_id=self.participant_id, payment_status='success').exists():
+            raise ValidationError("User must buy ticket to review this event.")
+        super().save(*args, **kwargs)
 
 
 # Notification
 class Notification(BaseModel):
     participant_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'participant'}, null=False)
-    event_id = models.ForeignKey(Event, on_delete=models.CASCADE, null=False)
     title = models.CharField(max_length=50, null=False)
     message = RichTextField()
     is_read = models.BooleanField(default=False)
+    sent_at = models.DateTimeField(null=True)
 
     def __str__(self):
-        return f"Participant: {self.participant_id.name} - Event: {self.event_id.title} - Title: {self.title}"
+        return f"Participant: {self.participant_id.username} - Title: {self.title}"
 
+    class Meta:
+        ordering = ['sent_at']
 
-# Chat between user
-class ChatMessage(BaseModel):
-    sender_id = models.ForeignKey(User, on_delete=models.CASCADE, null=False, related_name='sent_messages')
-    receiver_id = models.ForeignKey(User, on_delete=models.CASCADE, null=False, related_name='received_messages')
-    message = RichTextField()
-    is_read = models.BooleanField(default=False)
-
-    def __str__(self):
-        return f"Sender: {self.sender_id.name} - Receiver: {self.receiver_id.name}"
 
 
 

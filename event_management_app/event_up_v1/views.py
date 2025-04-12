@@ -1,7 +1,7 @@
 from . import serializers
 from .models import EventType, Event, Ticket, User
 from rest_framework.response import Response
-from rest_framework import viewsets, generics, parsers, permissions
+from rest_framework import viewsets, generics, parsers, permissions, status
 from rest_framework.decorators import action
 
 
@@ -26,16 +26,16 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
     # Only user owned account can get and patch their data
     @action(methods=['get', 'patch'], url_path="current-user", detail=False, permission_classes=[permissions.IsAuthenticated])
     def get_current_user(self, request):
+        user = request.user
         if request.method.__eq__("PATCH"):
-            u = request.user
-            for key in u:
-                if key in ['first_name', 'last_name']:
-                    setattr(u, key, request.data[key])
-                elif key.__eq__('password'):
-                    u.set_password(request.data[key])
-
-            u.save()
-            return Response(serializers.UserSerializer(u).data)
-        return Response(serializers.UserSerializer(request.user).data)
+            u = self.serializer_class(user, data=request.data, partial=True)
+            # Cannot change role through API
+            if u.is_valid():
+                if 'role' in u.validated_data:
+                    return Response({'error': 'Cannot change role through API'}, status=status.HTTP_403_FORBIDDEN)
+                u.save()
+                return Response(u.data)
+            return Response(u.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.serializer_class(user))
 
 

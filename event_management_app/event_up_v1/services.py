@@ -25,21 +25,23 @@ def create_tickets_after_payment(invoice):
         existing_tickets = invoice.ticket_set.count()
         if existing_tickets < invoice.ticket_count:
             for _ in range(invoice.ticket_count - existing_tickets):
-                Ticket.objects.create(
+                ticket = Ticket.objects.create(
                     invoice_id=invoice,
                     status='booked'
                 )
-            update_user_membership(invoice.user_id)
+                ticket.save()
+        update_user_membership(invoice.user_id)
+
 
 def update_user_membership(user):
-    if user.role == 'participant':
+    if user.role != 'participant':
         user.membership_tier = None
     else:
         invoices = Invoice.objects.filter(user_id=user, payment_status='success')
         total_tickets = invoices.aggregate(total=Sum('ticket_count'))['total'] or 0
         total_spent = invoices.aggregate(total=Sum('final_amount'))['total'] or 0
 
-        if total_tickets >= 50 or total_spent >= 1000000:
+        if total_tickets >= 50 or total_spent >= 6000000:
             user.membership_tier = Membership.DIAMOND
         elif total_tickets >= 20 or total_spent >= 3000000:
             user.membership_tier = Membership.GOLD
