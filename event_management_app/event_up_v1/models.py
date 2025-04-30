@@ -5,6 +5,8 @@ from cloudinary.models import CloudinaryField
 from ckeditor.fields import RichTextField
 from django.utils import timezone
 from django.core.exceptions import ValidationError
+from decimal import Decimal
+import uuid
 # Generate qr code
 import qrcode
 from io import BytesIO
@@ -84,7 +86,6 @@ class Event(BaseModel):
     ticket_quantity = models.PositiveIntegerField()
     ticket_price = models.DecimalField(max_digits=10, decimal_places=2)
 
-
     class Meta:
         ordering = ['id']
 
@@ -104,7 +105,7 @@ class Event(BaseModel):
 class Discount(BaseModel):
     discount_code = models.CharField(max_length=30, unique=True, null=False)
     discount_percent = models.DecimalField(max_digits=3, decimal_places=0, null=False,
-                                           validators=[MinValueValidator(1), MaxValueValidator(100)])
+                                           validators=[MinValueValidator(Decimal(1)), MaxValueValidator(Decimal(100))])
     valid_from = models.DateTimeField()
     valid_until = models.DateTimeField()
     max_usage = models.IntegerField(null=False)
@@ -115,11 +116,12 @@ class Discount(BaseModel):
         return self.discount_code
 
     def clean(self):
-        if self.valid_until < self.valid_from:
-            raise ValidationError({
-                'valid_until': 'Valid until must be greater than or equal to valid from.'
-            })
-        super().clean()
+        if self.valid_until and self.valid_from:
+            if self.valid_until < self.valid_from:
+                raise ValidationError({
+                    'valid_until': 'Valid until must be greater than or equal to valid from.'
+                })
+            super().clean()
 
 
 # Invoice
@@ -171,9 +173,9 @@ class Invoice(models.Model):
             from .services import update_user_membership
             was_pending = self.pk and Invoice.objects.get(pk=self.pk).payment_status == 'pending'
             if not self.pk:
-                super().save(*args, **kwargs)
-                date_str = self.created_at.strftime('%Y%m%d')
-                self.invoice_code = f"EVTUP-{date_str}-{str(self.id).zfill(6)}"
+                date_str = timezone.now().strftime('%Y%m%d')
+                unique_id = str(uuid.uuid4())[:8]
+                self.invoice_code = f"EVTUP-{date_str}-{unique_id}"
             self.calculate_amount()
             super().save(*args, **kwargs)
             if was_pending and self.payment_status == 'success':
@@ -260,7 +262,7 @@ class Review(BaseModel):
     participant_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'participant'}, null=False)
     event_id = models.ForeignKey(Event, on_delete=models.CASCADE, null=False)
     rating = models.DecimalField(max_digits=1, decimal_places=0, null=False,
-                                 validators=[MinValueValidator(1), MaxValueValidator(5)],
+                                 validators=[MinValueValidator(Decimal(1)), MaxValueValidator(Decimal(5))],
                                  help_text="Rating from 1 to 5 stars")
     comment = RichTextField()
 

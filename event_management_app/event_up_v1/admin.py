@@ -21,7 +21,7 @@ class EventForm(forms.ModelForm):
 
 
 class CustomUserAdmin(UserAdmin):
-    list_display = ['username', 'first_name', 'last_name', 'role', 'membership_tier', 'display_avatar']
+    list_display = ['username', 'first_name', 'last_name', 'email', 'role', 'membership_tier', 'display_avatar']
 
     fieldsets = UserAdmin.fieldsets + (
         ('Additional Info', {'fields': ('role', 'display_avatar')}),

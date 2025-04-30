@@ -1,5 +1,3 @@
-import cloudinary
-import cloudinary.uploader
 import cloudinary.api
 import os
 
@@ -27,12 +25,13 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://7601-42-118-184-45.ngrok-free.app',
+    'https://bf54-2405-4802-643c-8de0-d9d4-1ace-7dbf-b473.ngrok-free.app',
 ]
 
 # Application definition
 
 INSTALLED_APPS = [
+    'corsheaders',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -45,6 +44,8 @@ INSTALLED_APPS = [
     'ckeditor_uploader',
     'drf_yasg',
     'oauth2_provider',
+    'debug_toolbar',
+    'django_filters',
 ]
 
 REST_FRAMEWORK = {
@@ -53,8 +54,12 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    )
+        'rest_framework.permissions.AllowAny',
+    ),
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+    ]
 }
 
 CKEDITOR_UPLOAD_PATH = "ckeditors/events/"  # Thư mục lưu ảnh và file tải lên
@@ -71,15 +76,23 @@ CKEDITOR_CONFIGS = {
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'oauth2_provider.middleware.OAuth2TokenMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
 ]
 
+CORS_ALLOW_ALL_ORIGINS = True
+
 ROOT_URLCONF = 'event_up.urls'
+
+INTERNAL_IPS = [
+    '127.0.0.1'
+]
 
 # Configuration
 cloudinary.config(
@@ -111,7 +124,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'event_up.wsgi.application'
 
-
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
@@ -124,7 +136,6 @@ DATABASES = {
         'HOST': ''
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
@@ -150,7 +161,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Ho_Chi_Minh'
 
 USE_I18N = True
 
@@ -178,8 +189,8 @@ OAUTH2_PROVIDER = {
     'DEFAULT_SCOPES': ['read', 'write'],
 }
 
-CLIENT_ID = 'BkQBEw0KaJ20jBgpRCLOyXaYY2kFMbpVMUeNYFJO'
-CLIENT_SECRET = 'eLLHymg7jUjS6C5h3s0nzLlHMjkp6m2gDyaLgcuzxrFsPbSUzrJZ6kwZenhhSuYuHkicaLoWhmsNQjdxlGVbXG7Jx47s4CEAA33IAC3R3BUo8RtwymdXg8TKOlsc8so0'
+CLIENT_ID = '9J87vnUboufZI6oWdhNtd0pLSq7OhEEvketSdt9D'
+CLIENT_SECRET = '9GPR7JTMlk43rXNAp5tbaSawqsEuT6rFEUaO4VAA0JJr3Qc5fSn6WLiZkwAxrmmvjJnIi3H3f4JkumSvjRDS0cyxcFyYJ0Ij5cbfxuDL7M81f8guKv1kWJkhLI7DQ26j'
 
 # Sending notifications through email config
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

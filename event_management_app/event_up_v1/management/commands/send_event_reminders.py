@@ -17,6 +17,7 @@ class Command(BaseCommand):
                                                      one_day_later + timezone.timedelta(hours=1)),
             status='booked'
         )
+
         for ticket in tickets_one_day:
             event = ticket.invoice_id.event_id
             send_notification(

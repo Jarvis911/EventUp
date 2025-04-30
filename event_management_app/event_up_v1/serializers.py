@@ -1,6 +1,7 @@
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
-from .models import Event, EventType, Ticket, User
+from django.utils import timezone
+from .models import Event, EventType, Ticket, User, Discount, Invoice, Review
 # To call API
 import requests
 
@@ -22,10 +23,19 @@ class EventTypeSerializer(ModelSerializer):
 
 # Serializer for Event
 class EventSerializer(BaseSerializer):
+    event_type_id = serializers.PrimaryKeyRelatedField(
+        queryset=EventType.objects.all()
+    )
+
     class Meta:
         model = Event
-        fields = ['id', 'title', 'event_type_id', 'organizer_id', 'description', 'start_time', 'end_time', 'location',
-                  'image', 'ticket_quantity', 'ticket_price', 'latitude', 'longitude']
+        fields = ['id', 'title', 'event_type_id', 'organizer_id', 'description', 'start_time',
+                  'end_time', 'location', 'image', 'ticket_quantity', 'ticket_price', 'latitude', 'longitude']
+        extra_kwargs = {
+            'organizer_id': {'read_only': True},
+            'latitude': {'read_only': True},
+            'longitude': {'read_only': True}
+        }
 
     # Calling API to update latitude and longitude when change location from API request
     def _update_geocoding(self, validated_data):
@@ -46,6 +56,17 @@ class EventSerializer(BaseSerializer):
                 raise serializers.ValidationError(f"Error calling geocode.maps.co: {str(e)}")
             except (KeyError, ValueError) as e:
                 raise serializers.ValidationError(f"Invalid response format: {str(e)}")
+
+        return validated_data
+
+    def to_internal_value(self, data):
+        validated_data = super().to_internal_value(data)
+
+        unknown_fields = set(data.keys()) - set(self.fields.keys())
+        if unknown_fields:
+            raise serializers.ValidationError({
+                field: 'This field is not allowed.' for field in unknown_fields
+            })
 
         return validated_data
 
@@ -79,9 +100,21 @@ class UserSerializer(ModelSerializer):
         data['avatar'] = instance.avatar.url if instance.avatar else None
         return data
 
+    # Check if user try to send invalid fields
+    def to_internal_value(self, data):
+        validated_data = super().to_internal_value(data)
+
+        unknown_fields = set(data.keys()) - set(self.fields.keys())
+        if unknown_fields:
+            raise serializers.ValidationError({
+                field: 'This field is not allowed.' for field in unknown_fields
+            })
+
+        return validated_data
+
     class Meta:
         model = User
-        fields = ['username', 'password', 'first_name', 'last_name', 'role', 'membership_tier', 'avatar']
+        fields = ['username', 'password', 'first_name', 'last_name', 'email', 'role', 'membership_tier', 'avatar']
         extra_kwargs = {
             'password': {'write_only': True},
             'email': {'required': True},
@@ -118,4 +151,113 @@ class UserSerializer(ModelSerializer):
 class TicketSerializer(ModelSerializer):
     class Meta:
         model = Ticket
-        fields = ['']
+        fields = ['invoice_id', 'status', 'qr_code', 'checked_in_at']
+
+
+class DiscountSerializer(ModelSerializer):
+    # Check if user try to send invalid fields
+    def to_internal_value(self, data):
+        validated_data = super().to_internal_value(data)
+
+        unknown_fields = set(data.keys()) - set(self.fields.keys())
+        if unknown_fields:
+            raise serializers.ValidationError({
+                field: 'This field is not allowed.' for field in unknown_fields
+            })
+
+        return validated_data
+
+    class Meta:
+        model = Discount
+        fields = '__all__'
+        extra_kwargs = {
+            'used_count': {'read_only': True},
+        }
+
+
+class InvoiceSerializer(ModelSerializer):
+    event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all())
+    discount_id = serializers.PrimaryKeyRelatedField(queryset=Discount.objects.all(), required=False, allow_null=True)
+
+    class Meta:
+        model = Invoice
+        fields = ['invoice_code', 'user_id', 'event_id', 'discount_id', 'ticket_count','amount', 'discount_amount', 'final_amount',
+                  'payment_status', 'transaction_id', 'created_at']
+
+        read_only_fields = [
+            'invoice_code', 'user_id', 'amount', 'discount_amount', 'final_amount', 'payment_status', 'transaction_id',
+            'created_at'
+        ]
+
+    def validate(self, data):
+        if data.get('discount_id'):
+            discount = data['discount_id']
+            now = timezone.now()
+            user = self.context['request'].user
+            if not (
+                discount.active and
+                discount.valid_from < now < discount.valid_until and
+                discount.used_count < discount.max_usage and
+                (discount.membership_tier == user.membership_tier or discount.membership_tier is None)
+            ):
+                raise serializers.ValidationError({"discount_id": "Invalid discount!"})
+
+        if data['ticket_count'] <= 0:
+            raise serializers.ValidationError({"ticket_count": "Invoice must have one or more tickets!"})
+
+        return data
+
+
+class ReviewSerializer(ModelSerializer):
+    participant = UserSerializer(source='participant_id', read_only=True)
+    event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all())
+
+    def to_internal_value(self, data):
+        validated_data = super().to_internal_value(data)
+
+        unknown_fields = set(data.keys()) - set(self.fields.keys())
+        if unknown_fields:
+            raise serializers.ValidationError({
+                field: 'This field is not allowed.' for field in unknown_fields
+            })
+
+        return validated_data
+
+    class Meta:
+        model = Review
+        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date']
+        read_only_fields = ['id', 'participant', 'event_id', 'created_date']
+
+    def validate(self, data):
+        request = self.context.get('request')
+        event = self.context.get('event')
+
+        if not event:
+            raise serializers.ValidationError({"event_id": "Event is required to write reviews!"})
+
+        if not request.user.is_authenticated:
+            raise serializers.ValidationError({"participant_id": "Authentication is required!"})
+
+        if request.user.role != 'participant':
+            raise serializers.ValidationError({"participant_id": "Only participants can write reviews!"})
+
+        if not Invoice.objects.filter(
+            user_id=request.user,
+            event_id=event,
+            payment_status='success'
+        ).exists():
+            raise serializers.ValidationError({"event_id": "You must buy a ticket to reviews!"})
+
+        if Review.objects.filter(participant_id=request.user, event_id=event).exists():
+            raise serializers.ValidationError({"event_id": "You have already reviewed this event!"})
+
+        return data
+
+
+
+
+
+
+
+
+
