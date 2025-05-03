@@ -25,7 +25,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://bf54-2405-4802-643c-8de0-d9d4-1ace-7dbf-b473.ngrok-free.app',
+    'https://5b93-2405-4802-6451-4ec0-8156-de08-9259-a29e.ngrok-free.app',
 ]
 
 # Application definition
@@ -109,7 +109,7 @@ AUTH_USER_MODEL = 'event_up_v1.User'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -201,10 +201,10 @@ EMAIL_HOST_USER = 'triho753@gmail.com'
 EMAIL_HOST_PASSWORD = 'kxod ytzu yzmp xfno'
 DEFAULT_FROM_EMAIL = 'Event Up <triho753@gmail.com>'
 
-# MOMO test
-# MOMO_PARTNER_CODE = "MOMOBKUN20180529"
-# MOMO_ACCESS_KEY = "F8BBA842ECF85"
-# MOMO_SECRET_KEY = "K951B6PE1waDMi640xX08PD3vg6EkVlz"
-# MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-# MOMO_IPN_URL = "https://your-domain.com/momo/ipn/"  # Dùng ngrok
-# MOMO_REDIRECT_URL = "https://your-domain.com/momo/return/"
+# MoMo Sandbox configuration
+MOMO_PARTNER_CODE = "MOMOBKUN20180529"
+MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
+MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
+MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
+MOMO_IPN_URL = "https://1f65-2001-ee1-df06-98a0-ec81-6ff9-f11c-3aaf.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://1f65-2001-ee1-df06-98a0-ec81-6ff9-f11c-3aaf.ngrok-free.app/invoice/momo/return/"

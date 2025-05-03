@@ -2,10 +2,11 @@ from django.urls import path, include
 from . import views
 # For API
 from rest_framework.routers import DefaultRouter
-
+# Momo result route
+from django.views.generic import TemplateView
 
 router = DefaultRouter()
-router.register('event_type', views.EventTypeViewSet, basename='Event Type')
+router.register('category', views.CategoryViewSet, basename='Category')
 router.register('event', views.EventViewSet, basename='Event')
 router.register('user', views.UserViewSet, basename='User')
 router.register('ticket', views.TicketViewSet, basename='Ticket')
@@ -15,4 +16,6 @@ router.register('event/(?P<event_id>[^/.]+)/reviews', views.ReviewViewSet, basen
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('payment/success/', TemplateView.as_view(template_name='success.html'), name='payment_success'),
+    path('payment/fail/', TemplateView.as_view(template_name='fail.html'), name='payment_fail')
     ]

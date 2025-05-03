@@ -1,7 +1,7 @@
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Event, EventType, Ticket, User, Discount, Invoice, Review
+from .models import Event, Category, Ticket, User, Discount, Invoice, Review
 # To call API
 import requests
 
@@ -15,21 +15,22 @@ class BaseSerializer(ModelSerializer):
 
 
 # Serializer for EventType
-class EventTypeSerializer(ModelSerializer):
+class CategorySerializer(ModelSerializer):
     class Meta:
-        model = EventType
+        model = Category
         fields = ['id', 'name']
 
 
 # Serializer for Event
 class EventSerializer(BaseSerializer):
-    event_type_id = serializers.PrimaryKeyRelatedField(
-        queryset=EventType.objects.all()
+    category = CategorySerializer(read_only=True)
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all()
     )
 
     class Meta:
         model = Event
-        fields = ['id', 'title', 'event_type_id', 'organizer_id', 'description', 'start_time',
+        fields = ['id', 'title', 'category', 'category_id', 'organizer_id', 'description', 'start_time',
                   'end_time', 'location', 'image', 'ticket_quantity', 'ticket_price', 'latitude', 'longitude']
         extra_kwargs = {
             'organizer_id': {'read_only': True},
@@ -254,6 +255,10 @@ class ReviewSerializer(ModelSerializer):
         return data
 
 
+class ReviewStatsSerializer(serializers.Serializer):
+    event_id = serializers.IntegerField()
+    review_count = serializers.IntegerField()
+    average_rating = serializers.FloatField()
 
 
 

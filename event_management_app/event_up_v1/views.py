@@ -1,5 +1,5 @@
 from . import serializers, services
-from .models import EventType, Event, Ticket, User, Invoice, Discount, Review
+from .models import Category, Event, Ticket, User, Invoice, Discount, Review
 from django.db.models import F
 from django.utils import timezone
 from rest_framework.response import Response
@@ -8,17 +8,23 @@ from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Avg
+from rest_framework.exceptions import ValidationError
+# Momo
+from .utils import create_momo_payment, verify_momo_payment, send_notification
+from django.shortcuts import redirect
+from .services import create_tickets_after_payment
 # Custom Swagger
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from drf_spectacular.utils import extend_schema
 # Filter backend
 from django_filters.rest_framework import DjangoFilterBackend
 
 
-# Event type API view:
-class EventTypeViewSet(viewsets.ViewSet, generics.ListAPIView):
-    queryset = EventType.objects.filter(active=True)
-    serializer_class = serializers.EventTypeSerializer
+# Category API view:
+class CategoryViewSet(viewsets.ViewSet, generics.ListAPIView):
+    queryset = Category.objects.filter(active=True)
+    serializer_class = serializers.CategorySerializer
 
 
 # Event API view:
@@ -29,7 +35,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
 
-    filterset_fields = ['event_type_id']
+    filterset_fields = ['category_id']
     search_fields = ['title', 'description']
 
     def get_permissions(self):
@@ -73,7 +79,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @swagger_auto_schema(manual_parameters=[
-        openapi.Parameter('event_type_id', openapi.IN_QUERY, description="Filter with event_type_id",
+        openapi.Parameter('category_id', openapi.IN_QUERY, description="Filter with category_id",
                           type=openapi.TYPE_INTEGER),
         openapi.Parameter('search', openapi.IN_QUERY, description="Search by keyword", type=openapi.TYPE_STRING),
     ])
@@ -175,9 +181,13 @@ class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        if self.request.user.role == 'admin':
-            return Invoice.objects.all()
-        return Invoice.objects.filter(user_id=self.request.user)
+        user = self.request.user
+        if user.is_authenticated:
+            if getattr(user, 'role', None) == 'admin':
+                return Invoice.objects.all()
+            return Invoice.objects.filter(user_id=self.request.user)
+
+        return Invoice.objects.none()
 
     def perform_create(self, serializer):
         serializer.save(user_id=self.request.user)
@@ -205,14 +215,79 @@ class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
         iv = self.get_serializer(invoices, many=True)
         return Response(iv.data)
 
+    @action(methods=['post'], detail=True, url_path='momo-payment')
+    def momo_payment(self, request, pk=None):
+        invoice = get_object_or_404(Invoice, pk=pk, user_id=request.user, payment_status='pending')
+        try:
+            pay_url = create_momo_payment(invoice, request_id=invoice.invoice_code)
+            return Response({'pay_url': pay_url}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(methods=['post'], detail=False, url_path='momo/ipn', permission_classes=[permissions.AllowAny])
+    def momo_ipn(self, request):
+        data = request.data
+
+        # Temporary disable validate signature
+
+        if not verify_momo_payment(data):
+            return Response({'detail': 'Invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
+
+        order_id = data.get('orderId')
+        invoice_code = order_id.split('-')[0]
+        invoice = get_object_or_404(Invoice, invoice_code=invoice_code)
+
+        if data.get('resultCode') == 0:
+            invoice.payment_status = 'success'
+            invoice.transaction_id = data.get('transId')
+            invoice.save()
+            create_tickets_after_payment(invoice)
+            send_notification(
+                user=invoice.user_id,
+                title=f"Payment Successful for {invoice.event_id.title}",
+                message=f"Your payment of {invoice.final_amount} for {invoice.event_id.title} was successful. Invoice: {invoice.invoice_code}"
+            )
+        else:
+            invoice.payment_status = 'fail'
+            invoice.save()
+            send_notification(
+                user=invoice.user_id,
+                title=f"Payment Failed for {invoice.event_id.title}",
+                message=f"Your payment attempt for {invoice.event_id.title} failed. Reason: {data.get('message')}"
+            )
+        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path='momo/return', permission_classes=[permissions.AllowAny])
+    def momo_return(self, request):
+        order_id = request.query_params.get('orderId')
+        result_code = request.query_params.get('resultCode')
+        invoice_code = order_id.split('-')[0]
+        invoice = get_object_or_404(Invoice, invoice_code=invoice_code)
+
+        if result_code == '0':
+            return redirect('payment_success')
+        else:
+            return redirect('payment_fail')
+
 
 class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
-    serializer_class = serializers.ReviewSerializer
     permission_classes = [permissions.AllowAny]
-    pagination_class = PageNumberPagination
+
+    def get_serializer_class(self):
+        if self.action == 'get_review_stats':
+            return serializers.ReviewStatsSerializer
+        return serializers.ReviewSerializer
 
     def get_queryset(self):
         event_id = self.kwargs.get('event_id')
+
+        if event_id is None:
+            return Review.objects.all()
+        try:
+            event_id = int(event_id)
+        except (TypeError, ValueError):
+            raise ValidationError({'event_id': 'Invalid event_id format. Must be an integer.'})
+
         return Review.objects.filter(event_id=event_id, active=True)
 
     @action(methods=['post'], detail=False, url_path='create', permission_classes=[permissions.IsAuthenticated])
@@ -251,15 +326,16 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.error, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['get'], detail=False, url_path='stats', permission_classes=[permissions.IsAuthenticated])
+    @action(methods=['get'], detail=False, url_path='stats', permission_classes=[permissions.AllowAny])
     def get_review_stats(self, request, event_id=None):
         event = get_object_or_404(Event, pk=event_id, active=True)
         reviews = Review.objects.filter(event_id=event, active=True)
         count = reviews.count()
         avg_rating = reviews.aggregate(avg_rating=Avg('rating'))['avg_rating'] or 0
 
+
         return Response({
-            'event_id': event_id,
+            'event_id': int(event.id),
             'review_count': count,
             'average_rating': round(avg_rating, 1) if avg_rating else 0.0
         }, status=status.HTTP_200_OK)

@@ -1,5 +1,5 @@
 from django.contrib import admin, messages
-from .models import User, Event, EventType, Ticket, Invoice, Discount, Review, Notification
+from .models import User, Event, Category, Ticket, Invoice, Discount, Review, Notification
 from django.contrib.auth.admin import UserAdmin
 from ckeditor_uploader.widgets import CKEditorUploadingWidget
 from django.utils.safestring import mark_safe
@@ -24,7 +24,7 @@ class CustomUserAdmin(UserAdmin):
     list_display = ['username', 'first_name', 'last_name', 'email', 'role', 'membership_tier', 'display_avatar']
 
     fieldsets = UserAdmin.fieldsets + (
-        ('Additional Info', {'fields': ('role', 'display_avatar')}),
+        ('Additional Info', {'fields': ('role', 'avatar', 'display_avatar')}),
     )
 
     add_fieldsets = UserAdmin.add_fieldsets + (
@@ -50,9 +50,9 @@ class ReviewInLine(admin.TabularInline):
 
 
 class EventAdmin(admin.ModelAdmin):
-    list_display = ['id', 'organizer_id', 'event_type_id', 'title', 'description', 'start_time',
+    list_display = ['id', 'organizer_id', 'category_id', 'title', 'description', 'start_time',
                     'end_time', 'location', 'ticket_quantity', 'ticket_price']
-    fields = ['organizer_id', 'event_type_id', 'title', 'description', 'start_time', 'end_time',
+    fields = ['organizer_id', 'category_id', 'title', 'description', 'start_time', 'end_time',
               'location', 'latitude', 'longitude', 'ticket_quantity', 'ticket_price', 'image',
               'image_view']
     search_fields = ['title']
@@ -141,7 +141,7 @@ class TicketAdmin(admin.ModelAdmin):
     check_in_tickets.short_description = "Check-in selected ticket"
 
 
-class EventTypeAdmin(admin.ModelAdmin):
+class CategoryAdmin(admin.ModelAdmin):
     list_display = ['id', 'name', 'description']
 
 
@@ -198,7 +198,7 @@ admin.site.index_title = 'EventUp Site'
 # Register your models here.
 admin.site.register(User, CustomUserAdmin)
 admin.site.register(Event, EventAdmin)
-admin.site.register(EventType, EventTypeAdmin)
+admin.site.register(Category, CategoryAdmin)
 admin.site.register(Ticket, TicketAdmin)
 admin.site.register(Invoice, InvoiceAdmin)
 admin.site.register(Discount, DiscountAdmin)

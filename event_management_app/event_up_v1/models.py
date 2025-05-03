@@ -59,8 +59,8 @@ class BaseModel(models.Model):
         abstract = True
 
 
-# Event type
-class EventType(BaseModel):
+# Category
+class Category(BaseModel):
     name = models.CharField(max_length=50, unique=True)
     description = RichTextField(null=True)
 
@@ -74,7 +74,7 @@ class EventType(BaseModel):
 # Event
 class Event(BaseModel):
     organizer_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'organizer'})
-    event_type_id = models.ForeignKey(EventType, on_delete=models.CASCADE)
+    category_id = models.ForeignKey(Category, on_delete=models.CASCADE)
     title = models.CharField(max_length=100, unique=True)
     description = RichTextField(null=True)
     start_time = models.DateTimeField()
@@ -175,7 +175,7 @@ class Invoice(models.Model):
             if not self.pk:
                 date_str = timezone.now().strftime('%Y%m%d')
                 unique_id = str(uuid.uuid4())[:8]
-                self.invoice_code = f"EVTUP-{date_str}-{unique_id}"
+                self.invoice_code = f"EVTUP{date_str}{unique_id}"
             self.calculate_amount()
             super().save(*args, **kwargs)
             if was_pending and self.payment_status == 'success':
