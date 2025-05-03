@@ -1,6 +1,6 @@
 from . import serializers, services
 from .models import Category, Event, Ticket, User, Invoice, Discount, Review
-from django.db.models import F, Count, Q
+from django.db.models import F, Count, Q, FloatField, ExpressionWrapper
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import viewsets, generics, parsers, permissions, status, filters
@@ -64,6 +64,14 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
             return Response(e.data)
         return Response(e.errors, status=status.HTTP_400_BAD_REQUEST)
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.views = F('views') + 1
+        instance.save(update_fields=['views'])
+        instance.refresh_from_db()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
     @action(methods=['delete'], detail=True, url_path='', permission_classes=[permissions.IsAuthenticated])
     def delete_event(self, request, pk=None):
         event = get_object_or_404(Event, pk=pk, active=True)
@@ -87,19 +95,22 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
-    # @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
-    # def trend(self, request):
-    #     events = Event.objects.filter(active=True).annotate(
-    #         review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
-    #         ticket_count=Coalesce(Count('ticket', filter=Q(ticket__status='paid')))
-    #     )
-    def retrieve(self):
-        instance = self.get_object()
-        instance.views = F('views') + 1
-        instance.save(update_fields=['views'])
-        instance.refrest_from_db()
-        serializer = self.get_serializer(instance)
+    @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
+    def trend(self, request):
+        events = Event.objects.filter(active=True).annotate(
+            review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
+            sold_ticket_count=Coalesce(Count('invoices__tickets', filter=Q(invoices__payment_status='success')), 0),
+            views_float=Coalesce(F('views'), 0),
+        ).annotate(
+            trend_score=ExpressionWrapper(
+                F('views_float')*0.2 + F('review_count')*0.5 + F('sold_ticket_count')*0.3,
+                output_field=FloatField()
+            )
+        ).order_by('-trend_score')[:10]
+
+        serializer = self.get_serializer(events, many=True)
         return Response(serializer.data)
+
 
 # User API view:
 class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):

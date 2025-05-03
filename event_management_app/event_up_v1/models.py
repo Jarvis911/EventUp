@@ -85,7 +85,7 @@ class Event(BaseModel):
     image = CloudinaryField(null=True)
     ticket_quantity = models.PositiveIntegerField()
     ticket_price = models.DecimalField(max_digits=10, decimal_places=2)
-    # views = models.PositiveIntegerField(default=0)
+    views = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ['id']
@@ -129,7 +129,7 @@ class Discount(BaseModel):
 class Invoice(models.Model):
     invoice_code = models.CharField(max_length=30, unique=True, null=False)
     user_id = models.ForeignKey(User, max_length=20, null=False, on_delete=models.PROTECT, limit_choices_to={'role': 'participant'})
-    event_id = models.ForeignKey(Event, on_delete=models.CASCADE)
+    event_id = models.ForeignKey(Event, related_name='invoices', on_delete=models.CASCADE)
     discount_id = models.ForeignKey(Discount, on_delete=models.PROTECT, null=True, blank=True)
     amount = models.FloatField(null=True, blank=True)
     discount_amount = models.FloatField(null=True, default=0)
@@ -193,7 +193,7 @@ class Invoice(models.Model):
 
 # Each ticket have a qr code
 class Ticket(BaseModel):
-    invoice_id = models.ForeignKey(Invoice, on_delete=models.SET_NULL, null=True, blank=True)
+    invoice_id = models.ForeignKey(Invoice, related_name='tickets', on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(max_length=20, choices=(('booked', 'Booked'), ('checked-in', 'Checked-in')),
                               default='booked')
     qr_code = CloudinaryField('qr_codes', blank=True)
