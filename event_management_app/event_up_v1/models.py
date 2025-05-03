@@ -85,6 +85,7 @@ class Event(BaseModel):
     image = CloudinaryField(null=True)
     ticket_quantity = models.PositiveIntegerField()
     ticket_price = models.DecimalField(max_digits=10, decimal_places=2)
+    # views = models.PositiveIntegerField(default=0)
 
     class Meta:
         ordering = ['id']

@@ -23,7 +23,7 @@ class CategorySerializer(ModelSerializer):
 
 # Serializer for Event
 class EventSerializer(BaseSerializer):
-    category = CategorySerializer(read_only=True)
+    category = CategorySerializer(source='category_id', read_only=True)
     category_id = serializers.PrimaryKeyRelatedField(
         queryset=Category.objects.all()
     )

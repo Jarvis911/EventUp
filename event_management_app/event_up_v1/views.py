@@ -1,6 +1,6 @@
 from . import serializers, services
 from .models import Category, Event, Ticket, User, Invoice, Discount, Review
-from django.db.models import F
+from django.db.models import F, Count, Q
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import viewsets, generics, parsers, permissions, status, filters
@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Avg
 from rest_framework.exceptions import ValidationError
+from django.db.models.functions import Coalesce
 # Momo
 from .utils import create_momo_payment, verify_momo_payment, send_notification
 from django.shortcuts import redirect
@@ -85,6 +86,20 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     ])
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
+
+    # @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
+    # def trend(self, request):
+    #     events = Event.objects.filter(active=True).annotate(
+    #         review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
+    #         ticket_count=Coalesce(Count('ticket', filter=Q(ticket__status='paid')))
+    #     )
+    def retrieve(self):
+        instance = self.get_object()
+        instance.views = F('views') + 1
+        instance.save(update_fields=['views'])
+        instance.refrest_from_db()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
 # User API view:
 class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
