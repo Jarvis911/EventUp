@@ -1,6 +1,6 @@
 from . import serializers, services
 from .models import Category, Event, Ticket, User, Invoice, Discount, Review
-from django.db.models import F, Count, Q, FloatField, ExpressionWrapper
+from django.db.models import F, Count, Q, FloatField, ExpressionWrapper, Sum
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import viewsets, generics, parsers, permissions, status, filters
@@ -10,6 +10,7 @@ from rest_framework.pagination import PageNumberPagination
 from django.db.models import Avg
 from rest_framework.exceptions import ValidationError
 from django.db.models.functions import Coalesce
+from datetime import datetime, timedelta
 # Momo
 from .utils import create_momo_payment, verify_momo_payment, send_notification
 from django.shortcuts import redirect
@@ -17,7 +18,7 @@ from .services import create_tickets_after_payment
 # Custom Swagger
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 # Filter backend
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -65,6 +66,10 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         return Response(e.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def retrieve(self, request, *args, **kwargs):
+        pk = kwargs.get('pk')
+        if not pk or not pk.isdigit():
+            return Response({'detail': 'Invalid event ID.'}, status=status.HTTP_400_BAD_REQUEST)
+
         instance = self.get_object()
         instance.views = F('views') + 1
         instance.save(update_fields=['views'])
@@ -97,6 +102,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
 
     @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
     def trend(self, request):
+
         events = Event.objects.filter(active=True).annotate(
             review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
             sold_ticket_count=Coalesce(Count('invoices__tickets', filter=Q(invoices__payment_status='success')), 0),
@@ -354,6 +360,9 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
 
     @action(methods=['get'], detail=False, url_path='stats', permission_classes=[permissions.AllowAny])
     def get_review_stats(self, request, event_id=None):
+        if not event_id or not event_id.isdigit():
+            return Response({'detail': 'Invalid event ID.'}, status=status.HTTP_400_BAD_REQUEST)
+
         event = get_object_or_404(Event, pk=event_id, active=True)
         reviews = Review.objects.filter(event_id=event, active=True)
         count = reviews.count()
@@ -376,6 +385,129 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         review.active = False
         review.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class OrganizerPermission(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == 'organizer'
+
+
+class ReportViewSet(viewsets.ViewSet):
+    permission_classes = [OrganizerPermission]
+
+    @action(methods=['get'], detail=False, url_path='organizer/dashboard')
+    def organizer_dashboard(self, request):
+        organizer = request.user
+        events = Event.objects.filter(organizer_id=organizer, active=True)
+
+        # Dashboard data
+        total_tickets = Invoice.objects.filter(
+            event_id__in=events,
+            payment_status='success'
+        ).aggregate(total=Sum('ticket_count'))['total'] or 0
+
+        total_revenue = Invoice.objects.filter(
+            event_id__in=events,
+            payment_status='success'
+        ).aggregate(total=Sum('amount'))['total'] or 0
+
+        total_views = events.aggregate(total=Sum('views'))['total'] or 0
+
+        # Bar chart data
+        event_data = []
+        for event in events:
+            avg_rating = Review.objects.filter(
+                event_id=event,
+                active=True
+            ).aggregate(avg=Avg('rating'))['avg'] or 0
+
+            event_data.append({
+                'event_id': event.id,
+                'event_title': event.title,
+                'views': event.views,
+                'average_rating': round(avg_rating, 1)
+            })
+
+        data = {
+            'total_tickets': total_tickets,
+            'total_revenue': total_revenue,
+            'total_views': total_views,
+            'events': event_data
+        }
+
+        serializer = serializers.OrganizerDashboardSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name='month',
+                description='Month of the report (1-12)',
+                required=True,
+                type=int,
+                location=OpenApiParameter.QUERY
+            ),
+            OpenApiParameter(
+                name='year',
+                description='Year of the report (e.g., 2025)',
+                required=True,
+                type=int,
+                location=OpenApiParameter.QUERY
+            )
+        ]
+    )
+    @action(methods=['get'], url_path='organizer/monthly', detail=False)
+    def monthly_report(self, request):
+        organizer = request.user
+        month = request.query_params.get('month')
+        year = request.query_params.get('year')
+
+        if not (month and year):
+            return Response({'detail': 'Month and year are required!!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            month = int(month)
+            year = int(year)
+            if not (1 <= month <= 12):
+                raise ValueError
+        except ValueError:
+            return Response({'detail': 'Invalid month or year format!!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        start_date = timezone.make_aware(datetime(year, month, 1))
+        end_date = (start_date + timedelta(days=31)).replace(day=1) - timedelta(seconds=1)
+
+        invoices = Invoice.objects.filter(
+            event_id__organizer_id=organizer,
+            payment_status='success',
+            created_at__range=[start_date, end_date]
+        )
+
+        # Ticket data to draw chart
+        ticket_data = invoices.values('event_id', 'event_id__title').annotate(ticket_count=Sum('ticket_count')).order_by('-ticket_count')
+        # Revenue data to draw chart
+        revenue_data = invoices.values('event_id', 'event_id__title').annotate(revenue=Sum('amount')).order_by('-revenue')
+
+        data = {
+            'ticket_pie_chart': [
+                {'event_id': item['event_id'],
+                 'event_title': item['event_id__title'],
+                 'value': item['ticket_count']}
+                for item in ticket_data
+            ],
+            'revenue_pie_chart': [
+                {'event_id': item['event_id'],
+                 'event_title': item['event_id__title'],
+                 'value': float(item['revenue'])}
+                for item in revenue_data
+            ]
+        }
+
+        serializer = serializers.MonthlyReportSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
 
 
 

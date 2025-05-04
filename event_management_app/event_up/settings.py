@@ -25,7 +25,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://5b93-2405-4802-6451-4ec0-8156-de08-9259-a29e.ngrok-free.app',
+    'https://82a2-2405-4802-6452-28e0-6c90-5144-fd0b-52d9.ngrok-free.app/',
 ]
 
 # Application definition
@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'oauth2_provider',
     'debug_toolbar',
     'django_filters',
+    'drf_spectacular',
 ]
 
 REST_FRAMEWORK = {
@@ -59,7 +60,18 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': [
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
-    ]
+    ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
 }
 
 CKEDITOR_UPLOAD_PATH = "ckeditors/events/"  # Thư mục lưu ảnh và file tải lên
@@ -206,5 +218,6 @@ MOMO_PARTNER_CODE = "MOMOBKUN20180529"
 MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
 MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://1f65-2001-ee1-df06-98a0-ec81-6ff9-f11c-3aaf.ngrok-free.app/invoice/momo/ipn/"
-MOMO_REDIRECT_URL = "https://1f65-2001-ee1-df06-98a0-ec81-6ff9-f11c-3aaf.ngrok-free.app/invoice/momo/return/"
+MOMO_IPN_URL = "https://82a2-2405-4802-6452-28e0-6c90-5144-fd0b-52d9.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://82a2-2405-4802-6452-28e0-6c90-5144-fd0b-52d9.ngrok-free.app/invoice/momo/return/"
+

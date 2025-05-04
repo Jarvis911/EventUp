@@ -2,6 +2,7 @@ from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
 from django.utils import timezone
 from .models import Event, Category, Ticket, User, Discount, Invoice, Review
+from django.db.models import Sum, Count, Avg
 # To call API
 import requests
 
@@ -261,6 +262,16 @@ class ReviewStatsSerializer(serializers.Serializer):
     average_rating = serializers.FloatField()
 
 
+class OrganizerDashboardSerializer(serializers.Serializer):
+    total_tickets = serializers.IntegerField()
+    total_revenue = serializers.DecimalField(max_digits=10, decimal_places=2)
+    total_views = serializers.IntegerField()
+    events = serializers.ListField(child=serializers.DictField())
+
+
+class MonthlyReportSerializer(serializers.Serializer):
+    ticket_pie_chart = serializers.ListField(child=serializers.DictField())
+    revenue_pie_chart = serializers.ListField(child=serializers.DictField())
 
 
 
