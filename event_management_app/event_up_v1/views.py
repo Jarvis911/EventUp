@@ -43,14 +43,12 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     queryset = Event.objects.filter(active=True)
     serializer_class = serializers.EventSerializer
     parser_classes = [parsers.MultiPartParser]
-
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-
     filterset_fields = ['category_id']
     search_fields = ['title', 'description']
 
     def get_permissions(self):
-        if self.request.method in ['POST', 'PATCH']:
+        if self.request.method in ['POST', 'PATCH', 'DELETE']:
             return [permissions.IsAuthenticated()]
         return [permissions.AllowAny()]
 
@@ -93,7 +91,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
             return Response({"detail": "You do not have permission to delete this event!"},
                             status=status.HTTP_403_FORBIDDEN)
 
-        if Invoice.objects.filter(event=event, payment_status__in=['pending', 'success']).exist():
+        if Invoice.objects.filter(event_id=event, payment_status__in=['pending', 'success']).exists():
             return Response({"detail": "You can not delete this event because it has associated invoices!"},
                             status=status.HTTP_400_BAD_REQUEST)
 
@@ -163,25 +161,26 @@ class TicketViewSet(viewsets.ViewSet, generics.ListAPIView):
 
         return Response(tk.data)
 
-    @action(methods=['post'], detail=True, permission_classes=[permissions.IsAuthenticated])
+    @action(methods=['post'], detail=False, permission_classes=[permissions.IsAuthenticated])
     def check_in(self, request, pk=None):
-        ticket = get_object_or_404(Ticket, pk=pk, is_active=True)
+        serializer = serializers.QRCodeCheckInSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if ticket.event.organizer_id != request.user:
-            return Response({'detail': 'You do not have permission to check in this ticket!'}, status=status.HTTP_403_FORBIDDEN)
+        qr_code_data = serializer.validated_data['qr_code_data']
+        if not qr_code_data:
+            return Response({'detail': 'QR code data is required!'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if ticket.status != 'booked':
-            return Response({'detail': 'This ticket has already been checked in!'}, status=status.HTTP_400_BAD_REQUEST)
-
-        qr_code_data = ticket.generate_qr_code_data()
         result = services.check_in_ticket(qr_code_data)
 
-        if result.get('success'):
-            ticket.status = 'checked_in'
-            ticket.save()
-            return Response({'detail': result['message']}, status=status.HTTP_200_OK)
+        if not result.get('success'):
+            return Response({'detail': result.get('message', 'Check-in failed')}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'detail': result['message']}, status=status.HTTP_400_BAD_REQUEST)
+        ticket = get_object_or_404(Ticket, pk=result['ticket_id'], active=True)
+        if ticket.invoice_id.event_id.organizer_id != request.user:
+            return Response({'detail': 'You do not have permission to check in this ticket!'},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        return Response({'detail': result['message']}, status=status.HTTP_200_OK)
 
 
 class DiscountViewSet(viewsets.ViewSet, generics.ListAPIView):
@@ -333,18 +332,18 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
     @action(methods=['post'], detail=False, url_path='create', permission_classes=[permissions.IsAuthenticated])
     def create_review(self, request, event_id=None):
         event = get_object_or_404(Event, pk=event_id, active=True)
+
         serializer = self.get_serializer(
-            data = request.data,
-            event_id=event
+            data=request.data,
+            context={'request': request, 'event': event}
         )
 
         if serializer.is_valid():
             serializer.save(
                 participant_id=request.user,
-                event_id=event
             )
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.error, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['patch'], detail=True, url_path='', permission_classes=[permissions.IsAuthenticated])
     def update_review(self, request, event_id=None, pk=None):
@@ -364,7 +363,7 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.error, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['get'], detail=False, url_path='stats', permission_classes=[permissions.AllowAny])
     def get_review_stats(self, request, event_id=None):
@@ -376,7 +375,6 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         count = reviews.count()
         avg_rating = reviews.aggregate(avg_rating=Avg('rating'))['avg_rating'] or 0
 
-
         return Response({
             'event_id': int(event.id),
             'review_count': count,
@@ -384,7 +382,7 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         }, status=status.HTTP_200_OK)
 
     @action(methods=['delete'], detail=True, url_path='', permission_classes=[permissions.IsAuthenticated])
-    def delete_reviews(self, request, event_id=None, pk=None):
+    def delete_review(self, request, event_id=None, pk=None):
         event = get_object_or_404(Event, pk=event_id, active=True)
         review = get_object_or_404(Review, pk=pk, event_id=event, active=True)
         if request.user != review.participant_id and request.user.role != 'admin':
@@ -526,6 +524,9 @@ class FavoriteEventViewSet(viewsets.ViewSet):
                                                "automatically as `participant_id`. Do NOT sent it in request")
     def create(self, request):
         serializer = serializers.FavoriteEventSerializer(data=request.data, context={'request': request})
+        favorite_event = FavoriteEvent.objects.filter(participant_id=request.user, event_id=request.data["event_id"])
+        if favorite_event:
+            return Response({"detail": "This participant has already favored this event!"}, status=status.HTTP_400_BAD_REQUEST)
         if serializer.is_valid():
             serializer.save(participant_id=request.user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -533,7 +534,7 @@ class FavoriteEventViewSet(viewsets.ViewSet):
 
     @swagger_auto_schema(responses={204: openapi.Response('No content')})
     def destroy(self, request, pk=None):
-        favorite = get_object_or_404(FavoriteEvent, user=request.user, event_id__id=pk)
+        favorite = get_object_or_404(FavoriteEvent, participant_id=request.user, event_id__id=pk)
         favorite.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

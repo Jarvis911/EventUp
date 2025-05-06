@@ -2,6 +2,7 @@ from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
 from django.utils import timezone
 from .models import Event, Category, Ticket, User, Discount, Invoice, Review, FavoriteEvent
+from django.core.signing import Signer
 # To call API
 import requests
 
@@ -149,10 +150,20 @@ class UserSerializer(ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class QRCodeCheckInSerializer(serializers.Serializer):
+    qr_code_data = serializers.CharField(required=True)
+
+
 class TicketSerializer(ModelSerializer):
+    qr_code_data = serializers.SerializerMethodField()
+
     class Meta:
         model = Ticket
-        fields = ['invoice_id', 'status', 'qr_code', 'checked_in_at']
+        fields = ['invoice_id', 'status', 'qr_code', 'checked_in_at', 'qr_code_data']
+
+    def get_qr_code_data(self, obj):
+        signer = Signer()
+        return signer.sign(obj.id)
 
 
 class DiscountSerializer(ModelSerializer):
@@ -211,7 +222,6 @@ class InvoiceSerializer(ModelSerializer):
 
 class ReviewSerializer(ModelSerializer):
     participant = UserSerializer(source='participant_id', read_only=True)
-    event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all())
 
     class Meta:
         model = Review
@@ -249,9 +259,11 @@ class ReviewSerializer(ModelSerializer):
         ).exists():
             raise serializers.ValidationError({"event_id": "You must buy a ticket to reviews!"})
 
-        if Review.objects.filter(participant_id=request.user, event_id=event).exists():
-            raise serializers.ValidationError({"event_id": "You have already reviewed this event!"})
+        if self.instance is None:
+            if Review.objects.filter(participant_id=request.user, event_id=event).exists():
+                raise serializers.ValidationError({"event_id": "You have already reviewed this event!"})
 
+        data['event_id'] = event
         return data
 
 

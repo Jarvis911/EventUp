@@ -280,12 +280,6 @@ class Review(BaseModel):
     def __str__(self):
         return f"Participant: {self.participant_id.first_name} - Event: {self.event_id.title}"
 
-    def save(self, *args, **kwargs):
-        # Only if a participant have buy ticket can review
-        if not Invoice.objects.filter(event_id=self.event_id, user_id=self.participant_id, payment_status='success').exists():
-            raise ValidationError("User must buy ticket to review this event.")
-        super().save(*args, **kwargs)
-
 
 # Notification
 class Notification(BaseModel):

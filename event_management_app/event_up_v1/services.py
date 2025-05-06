@@ -14,8 +14,8 @@ def check_in_ticket(qr_code_data):
             ticket.status = 'checked-in'
             ticket.checked_in_at = timezone.now()
             ticket.save()
-            return {"status": "success", "message": "Checked in successfully"}
-        return {"status": "error", "message": "Ticket already checked in"}
+            return {"success": True, "message": "Checked in successfully", "ticket_id": ticket.id}
+        return {"status": "error", "message": "Ticket already checked in", "ticket_id": ticket.id}
     except BadSignature:
         return {"status": "error", "message": "Invalid QR Code"}
 
