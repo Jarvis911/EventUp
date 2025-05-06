@@ -25,7 +25,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://82a2-2405-4802-6452-28e0-6c90-5144-fd0b-52d9.ngrok-free.app/',
+    'https://1c64-14-169-26-201.ngrok-free.app',
 ]
 
 # Application definition
@@ -46,7 +46,6 @@ INSTALLED_APPS = [
     'oauth2_provider',
     'debug_toolbar',
     'django_filters',
-    'drf_spectacular',
 ]
 
 REST_FRAMEWORK = {
@@ -61,7 +60,6 @@ REST_FRAMEWORK = {
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
     ],
-    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
 CACHES = {
@@ -218,6 +216,6 @@ MOMO_PARTNER_CODE = "MOMOBKUN20180529"
 MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
 MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://82a2-2405-4802-6452-28e0-6c90-5144-fd0b-52d9.ngrok-free.app/invoice/momo/ipn/"
-MOMO_REDIRECT_URL = "https://82a2-2405-4802-6452-28e0-6c90-5144-fd0b-52d9.ngrok-free.app/invoice/momo/return/"
+MOMO_IPN_URL = "https://1c64-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://1c64-14-169-26-201.ngrok-free.app/invoice/momo/return/"
 

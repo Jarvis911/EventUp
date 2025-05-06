@@ -1,8 +1,7 @@
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Event, Category, Ticket, User, Discount, Invoice, Review
-from django.db.models import Sum, Count, Avg
+from .models import Event, Category, Ticket, User, Discount, Invoice, Review, FavoriteEvent
 # To call API
 import requests
 
@@ -214,6 +213,11 @@ class ReviewSerializer(ModelSerializer):
     participant = UserSerializer(source='participant_id', read_only=True)
     event_id = serializers.PrimaryKeyRelatedField(queryset=Event.objects.all())
 
+    class Meta:
+        model = Review
+        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date']
+        read_only_fields = ['id', 'participant', 'event_id', 'created_date']
+
     def to_internal_value(self, data):
         validated_data = super().to_internal_value(data)
 
@@ -224,11 +228,6 @@ class ReviewSerializer(ModelSerializer):
             })
 
         return validated_data
-
-    class Meta:
-        model = Review
-        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date']
-        read_only_fields = ['id', 'participant', 'event_id', 'created_date']
 
     def validate(self, data):
         request = self.context.get('request')
@@ -274,6 +273,17 @@ class MonthlyReportSerializer(serializers.Serializer):
     revenue_pie_chart = serializers.ListField(child=serializers.DictField())
 
 
+class FavoriteEventSerializer(ModelSerializer):
+    class Meta:
+        model = FavoriteEvent
+        fields = ['id', 'event_id', 'created_date']
+        read_only_fields = ['id', 'created_date']
+
+    def validate(self, data):
+        user = self.context['request'].user
+        if getattr(user, 'role', None) != 'participant':
+            raise serializers.ValidationError('Only participant can favorite events!')
+        return data
 
 
 

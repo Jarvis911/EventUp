@@ -16,11 +16,10 @@ router.register('discount', views.DiscountViewSet, basename='Discount')
 router.register('invoice', views.InvoiceViewSet, basename='Invoice')
 router.register('event/(?P<event_id>[^/.]+)/reviews', views.ReviewViewSet, basename='Review')
 router.register('reports', views.ReportViewSet, basename='Reports')
+router.register('favorite/event', views.FavoriteEventViewSet, basename='FavoriteEvent')
 
 urlpatterns = [
     path('', include(router.urls)),
     path('payment/success/', TemplateView.as_view(template_name='success.html'), name='payment_success'),
     path('payment/fail/', TemplateView.as_view(template_name='fail.html'), name='payment_fail'),
-    path('schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('swagger/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui')
     ]

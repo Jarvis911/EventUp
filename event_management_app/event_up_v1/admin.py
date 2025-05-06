@@ -28,7 +28,7 @@ class CustomUserAdmin(UserAdmin):
     )
 
     add_fieldsets = UserAdmin.add_fieldsets + (
-        ('Additional Info', {'fields': ('first_name', 'last_name', 'role', 'avatar')}),
+        ('Additional Info', {'fields': ('first_name', 'last_name', 'email', 'role', 'avatar')}),
     )
 
     readonly_fields = ['display_avatar']

@@ -1,5 +1,5 @@
 from . import serializers, services
-from .models import Category, Event, Ticket, User, Invoice, Discount, Review
+from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent
 from django.db.models import F, Count, Q, FloatField, ExpressionWrapper, Sum
 from django.utils import timezone
 from rest_framework.response import Response
@@ -18,9 +18,18 @@ from .services import create_tickets_after_payment
 # Custom Swagger
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
-from drf_spectacular.utils import extend_schema, OpenApiParameter
 # Filter backend
 from django_filters.rest_framework import DjangoFilterBackend
+
+
+class OrganizerPermission(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == 'organizer'
+
+
+class ParticipantPermission(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user.is_authenticated and request.user.role == 'participant'
 
 
 # Category API view:
@@ -49,7 +58,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         serializer.save(organizer_id=self.request.user)
 
     def create(self, request, *args, **kwargs):
-        if not request.user.role != 'organizer':
+        if request.user.role != 'organizer':
             return Response({"detail": "You do not have permission to create event!"})
         return super().create(request, *args, **kwargs)
 
@@ -102,7 +111,6 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
 
     @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
     def trend(self, request):
-
         events = Event.objects.filter(active=True).annotate(
             review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
             sold_ticket_count=Coalesce(Count('invoices__tickets', filter=Q(invoices__payment_status='success')), 0),
@@ -387,14 +395,13 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class OrganizerPermission(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'organizer'
-
-
 class ReportViewSet(viewsets.ViewSet):
     permission_classes = [OrganizerPermission]
 
+    @swagger_auto_schema(
+        responses={200: openapi.Response("Successfully get dashboard", serializers.OrganizerDashboardSerializer)},
+        operation_description="Retrieve organizer dashboard with event statistics."
+    )
     @action(methods=['get'], detail=False, url_path='organizer/dashboard')
     def organizer_dashboard(self, request):
         organizer = request.user
@@ -438,23 +445,17 @@ class ReportViewSet(viewsets.ViewSet):
         serializer = serializers.OrganizerDashboardSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name='month',
-                description='Month of the report (1-12)',
-                required=True,
-                type=int,
-                location=OpenApiParameter.QUERY
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter(
+                'month', openapi.IN_QUERY, description='Month of the report (1-12)', type=openapi.TYPE_INTEGER
             ),
-            OpenApiParameter(
-                name='year',
-                description='Year of the report (e.g., 2025)',
-                required=True,
-                type=int,
-                location=OpenApiParameter.QUERY
-            )
-        ]
+            openapi.Parameter(
+                'year', openapi.IN_QUERY, description='Year of the report (e.g., 2025)', type=openapi.TYPE_INTEGER
+            ),
+        ],
+        responses={200: openapi.Response("Successfully get report data", serializers.MonthlyReportSerializer)},
+        operation_description="Retrieve monthly report with ticket and revenue statistics for the organizer."
     )
     @action(methods=['get'], url_path='organizer/monthly', detail=False)
     def monthly_report(self, request):
@@ -508,6 +509,33 @@ class ReportViewSet(viewsets.ViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class FavoriteEventViewSet(viewsets.ViewSet):
+    queryset = FavoriteEvent.objects.all()
+    permission_classes = [ParticipantPermission]
+    serializer_class = serializers.FavoriteEventSerializer
+
+    @swagger_auto_schema(responses={200: serializers.FavoriteEventSerializer(many=True)})
+    def list(self, request):
+        favorites = FavoriteEvent.objects.filter(participant_id=request.user)
+        serializer = serializers.FavoriteEventSerializer(favorites, many=True)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(request_body=serializers.FavoriteEventSerializer,
+                         responses={201: openapi.Response('Successfully created', serializers.FavoriteEventSerializer)},
+                         operation_description="The authenticated participant (from token) will be used "
+                                               "automatically as `participant_id`. Do NOT sent it in request")
+    def create(self, request):
+        serializer = serializers.FavoriteEventSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save(participant_id=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @swagger_auto_schema(responses={204: openapi.Response('No content')})
+    def destroy(self, request, pk=None):
+        favorite = get_object_or_404(FavoriteEvent, user=request.user, event_id__id=pk)
+        favorite.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 

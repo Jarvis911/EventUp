@@ -289,7 +289,7 @@ class Review(BaseModel):
 
 # Notification
 class Notification(BaseModel):
-    participant_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'participant'}, null=False)
+    participant_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'participant'}, null=False)
     title = models.CharField(max_length=50, null=False)
     message = RichTextField()
     is_read = models.BooleanField(default=False)
@@ -300,6 +300,27 @@ class Notification(BaseModel):
 
     class Meta:
         ordering = ['sent_at']
+
+
+# Favorite
+class FavoriteEvent(BaseModel):
+    participant_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'participant'}, null=False)
+    event_id = models.ForeignKey(Event, on_delete=models.CASCADE, null=False)
+
+    class Meta:
+        unique_together = ['participant_id', 'event_id']
+        indexes = [
+            models.Index(fields=['participant_id', 'event_id'])
+        ]
+
+    def clean(self):
+        if self.participant_id.role != 'participant':
+            raise ValidationError('Only participant can favorite events!')
+        if not self.event_id.active:
+            raise ValidationError('Cannot favorite an inactive event!')
+
+
+
 
 
 
