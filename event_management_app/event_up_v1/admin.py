@@ -1,5 +1,5 @@
 from django.contrib import admin, messages
-from .models import User, Event, Category, Ticket, Invoice, Discount, Review, Notification
+from .models import User, Event, Category, Ticket, Invoice, Discount, Review, Notification, FavoriteEvent, UserPreference
 from django.contrib.auth.admin import UserAdmin
 from ckeditor_uploader.widgets import CKEditorUploadingWidget
 from django.utils.safestring import mark_safe
@@ -190,6 +190,20 @@ class NotificationAdmin(admin.ModelAdmin):
     list_filter = ['sent_at', 'title']
 
 
+class FavoriteEventAdmin(admin.ModelAdmin):
+    list_display = ('participant_id', 'event_id', 'created_date')
+    list_filter = ('created_date',)
+    search_fields = ('participant_id__username', 'event_id__title')
+    ordering = ('-created_date',)
+
+
+class UserPreferenceAdmin(admin.ModelAdmin):
+    list_display = ('user', 'category', 'created_date')
+    list_filter = ('category', 'created_date')
+    search_fields = ('user__username', 'category__name')
+    ordering = ('-created_date',)
+
+
 admin.site.site_header = 'EventUp Admin Site'
 admin.site.site_title = 'EventUp Site'
 admin.site.index_title = 'EventUp Site'
@@ -204,3 +218,5 @@ admin.site.register(Invoice, InvoiceAdmin)
 admin.site.register(Discount, DiscountAdmin)
 admin.site.register(Review, ReviewAdmin)
 admin.site.register(Notification, NotificationAdmin)
+admin.site.register(FavoriteEvent, FavoriteEventAdmin)
+admin.site.register(UserPreference, UserPreferenceAdmin)

@@ -17,6 +17,7 @@ router.register('invoice', views.InvoiceViewSet, basename='Invoice')
 router.register('event/(?P<event_id>[^/.]+)/reviews', views.ReviewViewSet, basename='Review')
 router.register('reports', views.ReportViewSet, basename='Reports')
 router.register('favorite/event', views.FavoriteEventViewSet, basename='FavoriteEvent')
+router.register('user/preference', views.UserPreferenceViewSet, basename='UserPreference')
 
 urlpatterns = [
     path('', include(router.urls)),

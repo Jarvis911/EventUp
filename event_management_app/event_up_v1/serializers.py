@@ -1,7 +1,7 @@
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Event, Category, Ticket, User, Discount, Invoice, Review, FavoriteEvent
+from .models import Event, Category, Ticket, User, Discount, Invoice, Review, FavoriteEvent, UserPreference
 from django.core.signing import Signer
 # To call API
 import requests
@@ -286,9 +286,11 @@ class MonthlyReportSerializer(serializers.Serializer):
 
 
 class FavoriteEventSerializer(ModelSerializer):
+    event = EventSerializer(source='event_id', read_only=True)
+
     class Meta:
         model = FavoriteEvent
-        fields = ['id', 'event_id', 'created_date']
+        fields = ['id', 'event', 'event_id', 'created_date']
         read_only_fields = ['id', 'created_date']
 
     def validate(self, data):
@@ -297,5 +299,28 @@ class FavoriteEventSerializer(ModelSerializer):
             raise serializers.ValidationError('Only participant can favorite events!')
         return data
 
+
+class UserPreferenceSerializer(serializers.ModelSerializer):
+    category = CategorySerializer(read_only=True)
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.filter(active=True),
+        source='category',
+        write_only=True
+    )
+
+    class Meta:
+        model = UserPreference
+        fields = ['id', 'user', 'category', 'category_id', 'created_date']
+        read_only_fields = ['id', 'user', 'created_date']
+
+    def validate(self, data):
+        user = self.context['request'].user
+        if user.role != 'participant':
+            raise serializers.ValidationError('Only participants can set preferences.')
+
+        category = data.get('category')
+        if UserPreference.objects.filter(user=user, category=category).exists():
+            raise serializers.ValidationError('This category is already in your preferences.')
+        return data
 
 

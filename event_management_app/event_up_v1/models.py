@@ -1,3 +1,5 @@
+import json
+
 import cloudinary.uploader
 from django.db import models
 from django.contrib.auth.models import AbstractUser
@@ -16,6 +18,7 @@ from django.core.signing import Signer
 from django.core.validators import MinValueValidator, MaxValueValidator
 # Update membership
 from django.db import transaction
+# Recommend
 
 
 # Enum for membership
@@ -86,6 +89,7 @@ class Event(BaseModel):
     ticket_quantity = models.PositiveIntegerField()
     ticket_price = models.DecimalField(max_digits=10, decimal_places=2)
     views = models.PositiveIntegerField(default=0)
+    feature_vector = models.TextField(null=True, blank=True)
 
     class Meta:
         ordering = ['id']
@@ -100,6 +104,15 @@ class Event(BaseModel):
                 'end_time': 'End time must be greater than or equal to start time.'
             })
         super().clean()
+
+    def set_feature_vector(self, vector):
+        self.feature_vector = json.dumps(vector.tolist())
+        self.save()
+
+    def get_feature_vector(self):
+        if self.feature_vector:
+            return json.loads(self.feature_vector)
+        return []
 
 
 # Discount for each different membership tier
@@ -314,6 +327,12 @@ class FavoriteEvent(BaseModel):
             raise ValidationError('Cannot favorite an inactive event!')
 
 
+class UserPreference(BaseModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='preferences')
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+
+    class Meta:
+        unique_together = ['user', 'category']
 
 
 

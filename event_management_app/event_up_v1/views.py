@@ -1,5 +1,5 @@
 from . import serializers, services
-from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent
+from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent, UserPreference
 from django.db.models import F, Count, Q, FloatField, ExpressionWrapper, Sum
 from django.utils import timezone
 from rest_framework.response import Response
@@ -20,6 +20,9 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 # Filter backend
 from django_filters.rest_framework import DjangoFilterBackend
+# Recommend
+from . import recommender
+import logging
 
 
 class OrganizerPermission(permissions.BasePermission):
@@ -121,6 +124,33 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         ).order_by('-trend_score')[:10]
 
         serializer = self.get_serializer(events, many=True)
+        return Response(serializer.data)
+
+    @action(methods=['get'], detail=False, permission_classes=[ParticipantPermission], url_path='recommended')
+    def recommended(self, request):
+        if not request.user.is_authenticated:
+            return Response({'detail': 'Authentication required'}, status=401)
+        try:
+            user = request.user
+            events = recommender.recommend_events(user, limit=10)
+        except Exception as e:
+            logging.error(f"AI recommendation failed: {str(e)}")
+            preferred_categories = UserPreference.objects.filter(user=user).values_list('category_id', flat=True)
+            favorite_categories = FavoriteEvent.objects.filter(participant_id=user).values_list('event_id__category_id', flat=True)
+            category_ids = set(preferred_categories).union(favorite_categories)
+
+            if not category_ids:
+                events = Event.objects.filter(active=True).order_by('-views')[:10]
+            else:
+                favorite_event_ids = FavoriteEvent.objects.filter(participant_id=user).values_list('event_id', flat=True)
+                events = Event.objects.filter(
+                    active=True,
+                    category_id__in=category_ids
+                ).exclude(
+                    id__in=favorite_event_ids
+                ).order_by('-views')[:10]
+
+        serializer = serializers.EventSerializer(events, many=True)
         return Response(serializer.data)
 
 
@@ -539,8 +569,45 @@ class FavoriteEventViewSet(viewsets.ViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class UserPreferenceViewSet(viewsets.ViewSet):
+    permission_classes = [ParticipantPermission]
+    serializer_class = serializers.UserPreferenceSerializer
+    queryset = UserPreference.objects.all()
 
+    @swagger_auto_schema(
+        responses={200: serializers.UserPreferenceSerializer(many=True)}
+    )
+    def list(self, request):
+        preferences = UserPreference.objects.filter(user=request.user)
+        serializer = serializers.UserPreferenceSerializer(preferences, many=True)
+        return Response(serializer.data)
 
+    @swagger_auto_schema(
+        request_body=serializers.UserPreferenceSerializer,
+        responses={201: serializers.UserPreferenceSerializer()}
+    )
+    def create(self, request):
+        serializer = serializers.UserPreferenceSerializer(data=request.data, context={'request': request})
+        if serializer.is_valid():
+            serializer.save(user=request.user)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter(
+                'pk',
+                openapi.IN_PATH,
+                description="ID of category to remove from preferences",
+                type=openapi.TYPE_INTEGER
+            )
+        ],
+        responses={204: 'No Content', 404: 'Not Found'}
+    )
+    def destroy(self, request, pk=None):
+        preference = get_object_or_404(UserPreference, user=request.user, category__id=pk)
+        preference.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 
