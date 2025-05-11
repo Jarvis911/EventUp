@@ -336,7 +336,7 @@ class UserPreference(BaseModel):
 
 
 class ReviewResponse(BaseModel):
-    review_id = models.OneToOneField(Review, on_delete=models.CASCADE, related_name='response')
+    review_id = models.ForeignKey(Review, on_delete=models.CASCADE, related_name='responses')
     organizer_id = models.ForeignKey(User, on_delete=models.CASCADE)
     response = RichTextField()
 
@@ -349,8 +349,6 @@ class ReviewResponse(BaseModel):
     def __str__(self):
         return f"Response to Review {self.review_id.id} by {self.organizer_id.name}"
 
-    class Meta:
-        unique_together = ['review_id', 'organizer_id']
 
 
 

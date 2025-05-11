@@ -226,7 +226,7 @@ class ReviewResponseSerializer(ModelSerializer):
     class Meta:
         model = ReviewResponse
         fields = ['id', 'review_id', 'organizer', 'organizer_id', 'response', 'active']
-        read_only_fields = ['id', 'review_id', 'organizer', 'organizer_id']
+        read_only_fields = ['id', 'review_id', 'organizer', 'organizer_id', 'active']
 
     def validate(self, data):
         review = self.context.get('review')
@@ -251,8 +251,8 @@ class ReviewSerializer(ModelSerializer):
 
     class Meta:
         model = Review
-        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date', 'response']
-        read_only_fields = ['id', 'participant', 'event_id', 'created_date', 'response']
+        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date', 'response', 'active']
+        read_only_fields = ['id', 'participant', 'event_id', 'created_date', 'response', 'active']
 
     def to_internal_value(self, data):
         validated_data = super().to_internal_value(data)

@@ -448,22 +448,15 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         elif request.method == 'GET':
-            if hasattr(review, 'response') and review.response and review.response.active:
-                serializer = serializers.ReviewResponseSerializer(review.response)
-                return Response([serializer.data], status=status.HTTP_200_OK)
-            return Response([], status=status.HTTP_200_OK)
+            responses = review.responses.filter(active=True)
+            serializer = serializers.ReviewResponseSerializer(responses, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
 
         elif request.method == 'PATCH':
-            try:
-                response = review.response
-                if not response.active:
-                    return Response({"detail": "No response found to update."}, status=status.HTTP_404_NOT_FOUND)
-
-            except ObjectDoesNotExist:
-                return Response({"detail": "No response found to update."}, status=status.HTTP_404_NOT_FOUND)
-            if request.user != event.organizer_id:
-                return Response({"detail": "You do not have permission to update this review."},
-                                status=status.HTTP_403_FORBIDDEN)
+            responses = review.responses.filter(organizer_id=request.user, active=True)
+            if not responses.exists():
+                return Response({"detail": "No active response found to update."}, status=status.HTTP_404_NOT_FOUND)
+            response = responses.first()
             serializer = serializers.ReviewResponseSerializer(
                 response,
                 data=request.data,
@@ -476,17 +469,10 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         elif request.method == 'DELETE':
-            try:
-                response = review.response
-                if not response.active:
-                    return Response({"detail": "No response found to delete."}, status=status.HTTP_404_NOT_FOUND)
-            except ObjectDoesNotExist:
-                return Response({"detail": "No response found to delete."}, status=status.HTTP_404_NOT_FOUND)
-
-            if request.user != event.organizer_id:
-                return Response({"detail": "You do not have permission to delete this review."},
-                                status=status.HTTP_403_FORBIDDEN)
-
+            responses = review.responses.filter(organizer_id=request.user, active=True)
+            if not responses.exists():
+                return Response({"detail": "No active response found to delete."}, status=status.HTTP_404_NOT_FOUND)
+            response = responses.first()
             response.active = False
             response.save()
             return Response(status=status.HTTP_204_NO_CONTENT)
