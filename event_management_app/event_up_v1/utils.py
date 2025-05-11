@@ -71,17 +71,18 @@ def create_momo_payment(invoice, request_id):
         "requestType": "captureWallet",
         "signature": signature
     }
-
+    result = {}
     try:
         response = requests.post(endpoint, json=payload, timeout=30)
         response.raise_for_status()
         result = response.json()
         logger.info(f"MoMo response: {result}")
         if result.get('resultCode') == 0:
-            return result.get('payUrl')
+            return result.get('payUrl'), result.get('qrCodeUrl', ''), result.get('deeplink', '')
         else:
             raise Exception(f"MoMo error: {result.get('message', 'Unknown error')}")
     except Exception as e:
+        logger.info(f"MoMo response (fallback): {json.dumps(result, indent=2)}")
         logger.error(f"Failed to create MoMo payment: {e}")
         raise Exception(f"Failed to create MoMo payment: {str(e)}")
 

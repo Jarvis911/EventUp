@@ -22,7 +22,7 @@ def check_in_ticket(qr_code_data):
 
 def create_tickets_after_payment(invoice):
     with transaction.atomic():
-        existing_tickets = invoice.ticket_set.count()
+        existing_tickets = invoice.tickets.count()
         if existing_tickets < invoice.ticket_count:
             for _ in range(invoice.ticket_count - existing_tickets):
                 ticket = Ticket.objects.create(

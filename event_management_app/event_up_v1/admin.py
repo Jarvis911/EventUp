@@ -1,5 +1,6 @@
 from django.contrib import admin, messages
-from .models import User, Event, Category, Ticket, Invoice, Discount, Review, Notification, FavoriteEvent, UserPreference
+from .models import User, Event, Category, Ticket, Invoice, Discount, Review, Notification, FavoriteEvent, UserPreference, ReviewResponse
+
 from django.contrib.auth.admin import UserAdmin
 from ckeditor_uploader.widgets import CKEditorUploadingWidget
 from django.utils.safestring import mark_safe
@@ -191,10 +192,10 @@ class NotificationAdmin(admin.ModelAdmin):
 
 
 class FavoriteEventAdmin(admin.ModelAdmin):
-    list_display = ('participant_id', 'event_id', 'created_date')
-    list_filter = ('created_date',)
-    search_fields = ('participant_id__username', 'event_id__title')
-    ordering = ('-created_date',)
+    list_display = ['participant_id', 'event_id', 'created_date']
+    list_filter = ['created_date',]
+    search_fields = ['participant_id__username', 'event_id__title']
+    ordering = ['-created_date',]
 
 
 class UserPreferenceAdmin(admin.ModelAdmin):
@@ -203,6 +204,9 @@ class UserPreferenceAdmin(admin.ModelAdmin):
     search_fields = ('user__username', 'category__name')
     ordering = ('-created_date',)
 
+
+# class ReviewResponseAdmin(admin.ModelAdmin):
+#     list_display =
 
 admin.site.site_header = 'EventUp Admin Site'
 admin.site.site_title = 'EventUp Site'

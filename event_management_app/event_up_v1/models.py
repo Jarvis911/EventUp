@@ -335,7 +335,22 @@ class UserPreference(BaseModel):
         unique_together = ['user', 'category']
 
 
+class ReviewResponse(BaseModel):
+    review_id = models.OneToOneField(Review, on_delete=models.CASCADE, related_name='response')
+    organizer_id = models.ForeignKey(User, on_delete=models.CASCADE)
+    response = RichTextField()
 
+    def clean(self):
+        if self.organizer_id.role != 'organizer':
+            raise ValidationError("Only organizer can respond to reviews")
+        if self.review_id.organizer_id != self.organizer_id:
+            raise ValidationError("Organizer can only respond to reviews of their own events!")
+
+    def __str__(self):
+        return f"Response to Review {self.review_id.id} by {self.organizer_id.name}"
+
+    class Meta:
+        unique_together = ['review_id', 'organizer_id']
 
 
 

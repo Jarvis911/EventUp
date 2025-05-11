@@ -1,11 +1,12 @@
 from . import serializers, services
-from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent, UserPreference
+from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent, UserPreference, ReviewResponse
 from django.db.models import F, Count, Q, FloatField, ExpressionWrapper, Sum
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import viewsets, generics, parsers, permissions, status, filters
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
+from django.core.exceptions import ObjectDoesNotExist
 from rest_framework.pagination import PageNumberPagination
 from django.db.models import Avg
 from rest_framework.exceptions import ValidationError
@@ -422,6 +423,74 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         review.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @action(methods=['get', 'post', 'patch', 'delete'], detail=True, url_path='response', permission_classes=[permissions.AllowAny])
+    def response(self, request, event_id=None, pk=None):
+        event = get_object_or_404(Event, pk=event_id, active=True)
+        review = get_object_or_404(Review, pk=pk, event_id=event, active=True)
+
+        if request.method == 'GET':
+            self.permission_classes = [permissions.AllowAny]
+
+        if request.method in ['POST', 'PATCH', 'DELETE'] and request.user != event.organizer_id:
+            return Response({"detail": "You do not have permission to reply this review."}, status=status.HTTP_403_FORBIDDEN)
+
+        if request.method == 'POST':
+            if ReviewResponse.objects.filter(review_id=review, active=True).exists():
+                return Response({"detail": "You have already response this review"}, status=status.HTTP_400_BAD_REQUEST)
+            serializer = serializers.ReviewResponseSerializer(
+                data=request.data,
+                context={'request': request, 'review': review}
+            )
+
+            if serializer.is_valid():
+                serializer.save(organizer_id=request.user, review_id=review)
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        elif request.method == 'GET':
+            if hasattr(review, 'response') and review.response and review.response.active:
+                serializer = serializers.ReviewResponseSerializer(review.response)
+                return Response([serializer.data], status=status.HTTP_200_OK)
+            return Response([], status=status.HTTP_200_OK)
+
+        elif request.method == 'PATCH':
+            try:
+                response = review.response
+                if not response.active:
+                    return Response({"detail": "No response found to update."}, status=status.HTTP_404_NOT_FOUND)
+
+            except ObjectDoesNotExist:
+                return Response({"detail": "No response found to update."}, status=status.HTTP_404_NOT_FOUND)
+            if request.user != event.organizer_id:
+                return Response({"detail": "You do not have permission to update this review."},
+                                status=status.HTTP_403_FORBIDDEN)
+            serializer = serializers.ReviewResponseSerializer(
+                response,
+                data=request.data,
+                partial=True,
+                context={'request': request, 'review': review}
+            )
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        elif request.method == 'DELETE':
+            try:
+                response = review.response
+                if not response.active:
+                    return Response({"detail": "No response found to delete."}, status=status.HTTP_404_NOT_FOUND)
+            except ObjectDoesNotExist:
+                return Response({"detail": "No response found to delete."}, status=status.HTTP_404_NOT_FOUND)
+
+            if request.user != event.organizer_id:
+                return Response({"detail": "You do not have permission to delete this review."},
+                                status=status.HTTP_403_FORBIDDEN)
+
+            response.active = False
+            response.save()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class ReportViewSet(viewsets.ViewSet):
     permission_classes = [OrganizerPermission]
@@ -484,6 +553,8 @@ class ReportViewSet(viewsets.ViewSet):
         ],
         responses={200: openapi.Response("Successfully get report data", serializers.MonthlyReportSerializer)},
         operation_description="Retrieve monthly report with ticket and revenue statistics for the organizer."
+                              "The authenticated organizer (from token) will be used automatically as "
+                              "`organizer_id`. Do NOT sent it in request"
     )
     @action(methods=['get'], url_path='organizer/monthly', detail=False)
     def monthly_report(self, request):

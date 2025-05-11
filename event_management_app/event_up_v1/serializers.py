@@ -1,7 +1,7 @@
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Event, Category, Ticket, User, Discount, Invoice, Review, FavoriteEvent, UserPreference
+from .models import Event, Category, Ticket, User, Discount, Invoice, Review, FavoriteEvent, UserPreference, ReviewResponse
 from django.core.signing import Signer
 # To call API
 import requests
@@ -116,11 +116,11 @@ class UserSerializer(ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['username', 'password', 'first_name', 'last_name', 'email', 'role', 'membership_tier', 'avatar']
+        fields = ['id', 'username', 'password', 'first_name', 'last_name', 'email', 'role', 'membership_tier', 'avatar']
+        read_only_fields = ['id', 'membership_tier']
         extra_kwargs = {
             'password': {'write_only': True},
-            'email': {'required': True},
-            'membership_tier': {'read_only': True}
+            'email': {'required': True}
         }
 
     # Encrypt password before save to database
@@ -193,11 +193,11 @@ class InvoiceSerializer(ModelSerializer):
 
     class Meta:
         model = Invoice
-        fields = ['invoice_code', 'user_id', 'event_id', 'discount_id', 'ticket_count','amount', 'discount_amount', 'final_amount',
+        fields = ['id', 'invoice_code', 'user_id', 'event_id', 'discount_id', 'ticket_count','amount', 'discount_amount', 'final_amount',
                   'payment_status', 'transaction_id', 'created_at']
 
         read_only_fields = [
-            'invoice_code', 'user_id', 'amount', 'discount_amount', 'final_amount', 'payment_status', 'transaction_id',
+            'id', 'invoice_code', 'user_id', 'amount', 'discount_amount', 'final_amount', 'payment_status', 'transaction_id',
             'created_at'
         ]
 
@@ -220,13 +220,39 @@ class InvoiceSerializer(ModelSerializer):
         return data
 
 
+class ReviewResponseSerializer(ModelSerializer):
+    organizer = UserSerializer(source='organizer_id', read_only=True)
+
+    class Meta:
+        model = ReviewResponse
+        fields = ['id', 'review_id', 'organizer', 'organizer_id', 'response', 'active']
+        read_only_fields = ['id', 'review_id', 'organizer', 'organizer_id']
+
+    def validate(self, data):
+        review = self.context.get('review')
+        if not review:
+            raise serializers.ValidationError("Review is required!")
+        return data
+
+    def to_internal_value(self, data):
+        validated_data = super().to_internal_value(data)
+
+        unknown_fields = set(data.keys()) - set(self.fields.keys())
+        if unknown_fields:
+            raise serializers.ValidationError({
+                field: 'This field is not allowed.' for field in unknown_fields
+            })
+
+        return validated_data
+
 class ReviewSerializer(ModelSerializer):
     participant = UserSerializer(source='participant_id', read_only=True)
+    response = ReviewResponseSerializer(read_only=True)
 
     class Meta:
         model = Review
-        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date']
-        read_only_fields = ['id', 'participant', 'event_id', 'created_date']
+        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date', 'response']
+        read_only_fields = ['id', 'participant', 'event_id', 'created_date', 'response']
 
     def to_internal_value(self, data):
         validated_data = super().to_internal_value(data)
@@ -306,7 +332,7 @@ class UserPreferenceSerializer(serializers.ModelSerializer):
         queryset=Category.objects.filter(active=True),
         source='category',
         write_only=True
-    )
+    )   
 
     class Meta:
         model = UserPreference
