@@ -171,7 +171,7 @@ class InvoiceAdmin(admin.ModelAdmin):
                 invoice.payment_status = 'success'
                 invoice.transaction_id = f"MANUAL-{timezone.now().strftime('%Y%m%d%H%M%S')}"
                 invoice.save()
-                if not invoice.ticket_set.exists():
+                if not invoice.tickets.exists():
                     services.create_tickets_after_payment(invoice)
                 updated += 1
         self.message_user(request, f"{updated} invoices processed")

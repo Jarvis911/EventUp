@@ -93,6 +93,12 @@ class Event(BaseModel):
 
     class Meta:
         ordering = ['id']
+        indexes = [
+            models.Index(fields=['active']),
+            models.Index(fields=['views']),
+            models.Index(fields=['category_id']),
+            models.Index(fields=['organizer_id'])
+        ]
 
     def __str__(self):
         return self.title
@@ -156,6 +162,13 @@ class Invoice(models.Model):
     payment_status = models.CharField(max_length=10, choices=PAYMENT_STATUS_CHOICES, default='pending')
     transaction_id = models.CharField(max_length=50, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['payment_status']),
+            models.Index(fields=['user_id']),
+            models.Index(fields=['event_id']),
+        ]
 
     def __str__(self):
         return self.invoice_code
@@ -284,6 +297,10 @@ class Review(BaseModel):
         # Each participant reviews 1 time for each event
         unique_together = ('participant_id', 'event_id')
         ordering = ['id']
+        indexes = [
+            models.Index(fields=['event_id']),
+            models.Index(fields=['active'])
+        ]
 
     def clean(self):
         if not Invoice.objects.filter(event_id=self.event_id, user_id=self.participant_id, payment_status='success').exists():

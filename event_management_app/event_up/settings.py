@@ -25,7 +25,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://8842-14-169-26-201.ngrok-free.app',
+    'https://da2d-14-169-26-201.ngrok-free.app',
 ]
 
 # Application definition

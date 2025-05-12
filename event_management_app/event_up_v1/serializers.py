@@ -321,8 +321,10 @@ class FavoriteEventSerializer(ModelSerializer):
 
     def validate(self, data):
         user = self.context['request'].user
+
         if getattr(user, 'role', None) != 'participant':
             raise serializers.ValidationError('Only participant can favorite events!')
+
         return data
 
 
