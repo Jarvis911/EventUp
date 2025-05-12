@@ -227,6 +227,10 @@ class Ticket(BaseModel):
 
     class Meta:
         ordering = ['id']
+        indexes = [
+            models.Index(fields=['invoice_id']),
+            models.Index(fields=['status']),
+        ]
 
     def __str__(self):
         return f"Ticket {self.id}"
@@ -356,6 +360,10 @@ class ReviewResponse(BaseModel):
     review_id = models.ForeignKey(Review, on_delete=models.CASCADE, related_name='responses')
     organizer_id = models.ForeignKey(User, on_delete=models.CASCADE)
     response = RichTextField()
+
+    indexes = [
+        models.Index(fields=['review_id'])
+    ]
 
     def clean(self):
         if self.organizer_id.role != 'organizer':

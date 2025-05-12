@@ -28,7 +28,8 @@ import logging
 
 class OrganizerPermission(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'organizer'
+        user = request.user
+        return user.is_authenticated and getattr(user, 'role', None) == 'organizer'
 
 
 class ParticipantPermission(permissions.BasePermission):
@@ -60,8 +61,10 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     search_fields = ['title', 'description']
 
     def get_permissions(self):
+        if self.action == 'get_my_event':
+            return [OrganizerPermission()]
         if self.request.method in ['POST', 'PATCH', 'DELETE']:
-            return [permissions.IsAuthenticated()]
+            return [OrganizerPermission]
         return [permissions.AllowAny()]
 
     def perform_create(self, serializer):
@@ -127,6 +130,22 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         instance.refresh_from_db()
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    @swagger_auto_schema(
+        responses={
+            200: 'Successfully get my events',
+            403: 'Forbidden'
+        },
+        operation_description="Get current organizer events. "
+                              "The authenticated organizer (from token) will be used automatically as `organizer_id`.",
+        operation_summary="Get current organizer events"
+    )
+    @action(methods=['get'], detail=False, url_path='my_event', permission_classes=[OrganizerPermission])
+    def get_my_event(self, request):
+        events = Event.objects.filter(organizer_id=request.user)
+        e = self.get_serializer(events, many=True)
+
+        return Response(e.data, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(
         responses={

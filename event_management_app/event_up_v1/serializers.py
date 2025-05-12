@@ -156,14 +156,20 @@ class QRCodeCheckInSerializer(serializers.Serializer):
 
 class TicketSerializer(ModelSerializer):
     qr_code_data = serializers.SerializerMethodField()
+    event = EventSerializer(source='invoice_id.event_id', read_only=True)
 
     class Meta:
         model = Ticket
-        fields = ['invoice_id', 'status', 'qr_code', 'checked_in_at', 'qr_code_data']
+        fields = ['invoice_id', 'status', 'qr_code', 'checked_in_at', 'qr_code_data', 'event']
 
     def get_qr_code_data(self, obj):
         signer = Signer()
         return signer.sign(obj.id)
+
+    def to_representation(self, instance):
+        d = super().to_representation(instance)
+        d['qr_code'] = instance.qr_code.url if instance.qr_code else None
+        return d
 
 
 class DiscountSerializer(ModelSerializer):
