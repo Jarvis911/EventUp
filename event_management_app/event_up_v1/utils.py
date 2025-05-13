@@ -78,7 +78,7 @@ def create_momo_payment(invoice, request_id):
         result = response.json()
         logger.info(f"MoMo response: {result}")
         if result.get('resultCode') == 0:
-            return result.get('payUrl'), result.get('qrCodeUrl', ''), result.get('deeplink', '')
+            return result.get('payUrl', '')
         else:
             raise Exception(f"MoMo error: {result.get('message', 'Unknown error')}")
     except Exception as e:

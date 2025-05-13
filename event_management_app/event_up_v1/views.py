@@ -34,7 +34,8 @@ class OrganizerPermission(permissions.BasePermission):
 
 class ParticipantPermission(permissions.BasePermission):
     def has_permission(self, request, view):
-        return request.user.is_authenticated and request.user.role == 'participant'
+        user = request.user
+        return user.is_authenticated and getattr(user, 'role', None) == 'participant'
 
 
 # Category API view:
@@ -64,7 +65,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         if self.action == 'get_my_event':
             return [OrganizerPermission()]
         if self.request.method in ['POST', 'PATCH', 'DELETE']:
-            return [OrganizerPermission]
+            return [OrganizerPermission()]
         return [permissions.AllowAny()]
 
     def get_queryset(self):
@@ -137,7 +138,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
 
     @swagger_auto_schema(
         responses={
-            200: 'Successfully get my events',
+            200: openapi.Response('Successfully get my events', serializers.EventSerializer),
             403: 'Forbidden'
         },
         operation_description="Get current organizer events. "
@@ -915,7 +916,7 @@ class FavoriteEventViewSet(viewsets.ViewSet):
                                                "automatically as `participant_id`. Do NOT sent it in request",
                          operation_summary="Participants read event in their favorite list")
     def list(self, request):
-        favorites = FavoriteEvent.objects.filter(participant_id=request.user)
+        favorites = FavoriteEvent.objects.filter(participant_id=request.user).select_related('event_id__category_id')
         serializer = serializers.FavoriteEventSerializer(favorites, many=True)
         return Response(serializer.data)
 

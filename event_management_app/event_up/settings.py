@@ -25,7 +25,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://2c1d-14-169-26-201.ngrok-free.app',
+    'https://2800-14-169-26-201.ngrok-free.app',
 ]
 
 # Application definition
@@ -217,8 +217,8 @@ MOMO_PARTNER_CODE = "MOMOBKUN20180529"
 MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
 MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://2c1d-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
-MOMO_REDIRECT_URL = "https://2c1d-14-169-26-201.ngrok-free.app/invoice/momo/return/"
+MOMO_IPN_URL = "https://2800-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://2800-14-169-26-201.ngrok-free.app/invoice/momo/return/"
 
 #
 #
