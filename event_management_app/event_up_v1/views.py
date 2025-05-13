@@ -67,6 +67,10 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
             return [OrganizerPermission]
         return [permissions.AllowAny()]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.select_related('category_id')
+
     def perform_create(self, serializer):
         serializer.save(organizer_id=self.request.user)
 
@@ -142,7 +146,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     )
     @action(methods=['get'], detail=False, url_path='my_event', permission_classes=[OrganizerPermission])
     def get_my_event(self, request):
-        events = Event.objects.filter(organizer_id=request.user)
+        events = self.get_queryset().filter(organizer_id=request.user)
         e = self.get_serializer(events, many=True)
 
         return Response(e.data, status=status.HTTP_200_OK)
@@ -190,7 +194,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     )
     @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
     def trend(self, request):
-        events = Event.objects.filter(active=True).annotate(
+        events = self.get_queryset().annotate(
             review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
             sold_ticket_count=Coalesce(Count('invoices__tickets', filter=Q(invoices__payment_status='success')), 0),
             views_float=Coalesce(F('views'), 0),
@@ -215,19 +219,21 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     )
     @action(methods=['get'], detail=False, permission_classes=[ParticipantPermission], url_path='recommended')
     def recommended(self, request):
-        if not request.user.is_authenticated:
+        user = request.user
+        if not user.is_authenticated:
             return Response({'detail': 'Authentication required'}, status=401)
+
         try:
-            user = request.user
             events = recommender.recommend_events(user, limit=10)
         except Exception as e:
             logging.error(f"AI recommendation failed: {str(e)}")
+
             preferred_categories = UserPreference.objects.filter(user=user).values_list('category_id', flat=True)
             favorite_categories = FavoriteEvent.objects.filter(participant_id=user).values_list('event_id__category_id', flat=True)
             category_ids = set(preferred_categories).union(favorite_categories)
 
             if not category_ids:
-                events = Event.objects.filter(active=True).order_by('-views')[:10]
+                events = self.get_queryset().order_by('-views')[:10]
             else:
                 favorite_event_ids = FavoriteEvent.objects.filter(participant_id=user).values_list('event_id', flat=True)
                 events = Event.objects.filter(
@@ -322,7 +328,7 @@ class TicketViewSet(viewsets.ViewSet, generics.ListAPIView):
         if request.user.role != 'participant':
             return Response({'detail': 'Only participants can get their ticket!'}, status=status.HTTP_403_FORBIDDEN)
 
-        tickets = Ticket.objects.filter(invoice_id__user_id=request.user, active=True)
+        tickets = Ticket.objects.select_related('invoice_id__event_id').filter(invoice_id__user_id=request.user, active=True)
         tk = self.get_serializer(tickets, many=True)
 
         return Response(tk.data)
@@ -595,10 +601,10 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         except (TypeError, ValueError):
             raise ValidationError({'event_id': 'Invalid event_id format. Must be an integer.'})
 
-        return Review.objects.filter(event_id=event_id, active=True)
+        return Review.objects.filter(event_id=event_id, active=True).select_related('participant_id', 'event_id')
 
     @swagger_auto_schema(
-        responses={200: serializers.InvoiceSerializer(many=True)},
+        responses={200: serializers.ReviewSerializer(many=True)},
         operation_description="List all reviews of a event.",
         operation_summary="List all reviews of a event."
     )
