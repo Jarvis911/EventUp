@@ -24,6 +24,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 # Recommend
 from . import recommender
 import logging
+from django.views.decorators.cache import cache_page
+from django.core.cache import cache
+from django.utils.decorators import method_decorator
 
 
 class OrganizerPermission(permissions.BasePermission):
@@ -134,6 +137,9 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         instance.save(update_fields=['views'])
         instance.refresh_from_db()
         serializer = self.get_serializer(instance)
+
+        cache.delete('trending:/event/trend/')
+        cache.delete('recommend:/event/recommended/')
         return Response(serializer.data)
 
     @swagger_auto_schema(
@@ -176,6 +182,8 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
 
         event.active = False
         event.save()
+        cache.delete('trending:/event/trend/')
+        cache.delete('recommend:/event/recommended/')
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @swagger_auto_schema(manual_parameters=[
@@ -194,6 +202,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         operation_summary="Get trending events"
     )
     @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
+    @method_decorator(cache_page(60 * 5, key_prefix='trending_event'))
     def trend(self, request):
         events = self.get_queryset().annotate(
             review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
@@ -219,6 +228,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         operation_summary="Get recommended events"
     )
     @action(methods=['get'], detail=False, permission_classes=[ParticipantPermission], url_path='recommended')
+    @method_decorator(cache_page(60 * 5, key_prefix='recommend'))
     def recommended(self, request):
         user = request.user
         if not user.is_authenticated:
