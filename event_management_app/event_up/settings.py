@@ -25,7 +25,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://2800-14-169-26-201.ngrok-free.app',
+    'https://582b-171-252-155-229.ngrok-free.app',
 ]
 
 # Application definition
@@ -60,6 +60,7 @@ REST_FRAMEWORK = {
         'django_filters.rest_framework.DjangoFilterBackend',
         'rest_framework.filters.SearchFilter',
     ],
+    'PAGE_SIZE': 20
 }
 
 CACHES = {
@@ -217,34 +218,6 @@ MOMO_PARTNER_CODE = "MOMOBKUN20180529"
 MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
 MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://2800-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
-MOMO_REDIRECT_URL = "https://2800-14-169-26-201.ngrok-free.app/invoice/momo/return/"
+MOMO_IPN_URL = "https://582b-171-252-155-229.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://582b-171-252-155-229.ngrok-free.app/invoice/momo/return/"
 
-#
-#
-# LOGGING = {
-#     'version': 1,
-#     'disable_existing_loggers': False,  # đảm bảo logger không bị tắt
-#     'handlers': {
-#         'console': {
-#             'class': 'logging.StreamHandler',
-#         },
-#     },
-#     'root': {
-#         'handlers': ['console'],
-#         'level': 'INFO',  # hoặc DEBUG nếu muốn nhiều log hơn
-#     },
-#     'loggers': {
-#         # Logger mặc định cho tất cả các file
-#         '': {
-#             'handlers': ['console'],
-#             'level': 'INFO',
-#         },
-#         # Hoặc logger cụ thể nếu bạn có tên module cụ thể
-#         'event_up': {
-#             'handlers': ['console'],
-#             'level': 'INFO',
-#             'propagate': False,
-#         },
-#     },
-# }

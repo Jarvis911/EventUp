@@ -475,6 +475,15 @@ class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
         if request.user.role != 'participant':
             return Response({'detail': 'Only participant can buy ticket!'}, status=status.HTTP_403_FORBIDDEN)
 
+        event = get_object_or_404(Event, pk=request.data['event_id'], active=True)
+        invoice_existed = Invoice.objects.filter(event_id=event, payment_status='success')
+        ticket_remain = event.ticket_quantity - invoice_existed.aggregate(ticket_existed=Sum('ticket_count'))['ticket_existed'] or 0
+        ticket_buy = int(request.data['ticket_count'])
+
+        if ticket_buy > ticket_remain:
+            return Response({'detail': 'Your number of tickets you bought is larger than the remaining quantity!'},
+                            status=status.HTTP_400_BAD_REQUEST)
+
         invoice = self.serializer_class(data=request.data, context={'request': request})
         if invoice.is_valid():
             invoice.validated_data['user_id'] = request.user
@@ -711,8 +720,7 @@ class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
         if request.user != review.participant_id and request.user.role != 'admin':
             return Response({"detail": "You do not have permission to delete this review!!!"},
                             status=status.HTTP_403_FORBIDDEN)
-        review.active = False
-        review.save()
+        review.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @swagger_auto_schema(

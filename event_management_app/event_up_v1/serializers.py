@@ -251,9 +251,10 @@ class ReviewResponseSerializer(ModelSerializer):
 
         return validated_data
 
+
 class ReviewSerializer(ModelSerializer):
     participant = UserSerializer(source='participant_id', read_only=True)
-    response = ReviewResponseSerializer(read_only=True)
+    response = serializers.SerializerMethodField()
 
     class Meta:
         model = Review
@@ -270,6 +271,12 @@ class ReviewSerializer(ModelSerializer):
             })
 
         return validated_data
+
+    def get_response(self, obj):
+        active_response = obj.responses.filter(active=True).first()
+        if active_response:
+            return ReviewResponseSerializer(active_response).data
+        return None
 
     def validate(self, data):
         request = self.context.get('request')
