@@ -8,10 +8,32 @@ import json
 import requests
 from django.conf import settings
 import logging
+from firebase_admin import messaging
 
 # Initialize logger
 logger = logging.getLogger(__name__)
 
+def send_fcm_notification(user, title, message):
+    if not user.push_token:
+        print(f"No push token available for user {user.id}")
+        return
+
+    message_obj = messaging.Message(
+        notification=messaging.Notification(
+            title=title,
+            body=message,
+        ),
+        data={
+            "invoice_code": getattr(user, 'invoice_code', '')
+        },
+        token=user.push_token,
+    )
+
+    try:
+        response = messaging.send(message_obj)
+        print(f"FCM notification sent to {user.push_token}: {response}")
+    except Exception as e:
+        print(f"Error sending FCM notification: {str(e)}")
 
 def send_notification(user, title, message, send_email=True):
     notification = Notification.objects.create(

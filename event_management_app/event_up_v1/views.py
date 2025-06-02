@@ -1,5 +1,5 @@
 from . import serializers, services
-from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent, UserPreference, ReviewResponse
+from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent, UserPreference, ReviewResponse, Notification
 from django.db.models import F, Count, Q, FloatField, ExpressionWrapper, Sum
 from django.utils import timezone
 from rest_framework.response import Response
@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from django.db.models.functions import Coalesce
 from datetime import datetime, timedelta
 # Momo
-from .utils import create_momo_payment, verify_momo_payment, send_notification
+from .utils import create_momo_payment, verify_momo_payment, send_notification, send_fcm_notification
 from django.shortcuts import redirect
 from .services import create_tickets_after_payment
 # Custom Swagger
@@ -27,6 +27,7 @@ import logging
 from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django.utils.decorators import method_decorator
+import requests
 
 
 class OrganizerPermission(permissions.BasePermission):
@@ -61,7 +62,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     serializer_class = serializers.EventSerializer
     parser_classes = [parsers.MultiPartParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    filterset_fields = ['category_id']
+    filterset_fields = ['category_id', 'location', 'start_time']
     search_fields = ['title', 'description']
 
     def get_permissions(self):
@@ -115,6 +116,22 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         e = serializers.EventSerializer(event, data=request.data, partial=True)
         if e.is_valid():
             e.save()
+
+            invoices = Invoice.objects.filter(event_id=event, payment_status='success').select_related('user_id')
+            push_tokens = [inv.user_id.push_token for inv in invoices if inv.user_id.push_token]
+
+            for token in push_tokens:
+                message = {
+                    "to": token,
+                    "sound": "default",
+                    "title": "Event update",
+                    "body": f"Event '{event.title}' has been updated, please check for more detail information!",
+                }
+                try:
+                    requests.post("https://exp.host/--/api/v2/push/send", json=message)
+                except Exception as ex:
+                    print(f"Push failed for token {token}: {ex}")
+
             return Response(e.data)
         return Response(e.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -202,7 +219,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         operation_summary="Get trending events"
     )
     @action(methods=['get'], detail=False, permission_classes=[permissions.AllowAny])
-    @method_decorator(cache_page(60 * 5, key_prefix='trending_event'))
+    # @method_decorator(cache_page(60 * 5, key_prefix='trending_event'))
     def trend(self, request):
         events = self.get_queryset().annotate(
             review_count=Coalesce(Count('review', filter=Q(review__active=True)), 0),
@@ -228,7 +245,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         operation_summary="Get recommended events"
     )
     @action(methods=['get'], detail=False, permission_classes=[ParticipantPermission], url_path='recommended')
-    @method_decorator(cache_page(60 * 5, key_prefix='recommend'))
+    # @method_decorator(cache_page(60 * 5, key_prefix='recommend'))
     def recommended(self, request):
         user = request.user
         if not user.is_authenticated:
@@ -311,6 +328,17 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
                 return Response(u.data)
             return Response(u.errors, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.serializer_class(user).data)
+
+    @action(methods=['post'], url_path='save-push-token', detail=False, permission_classes=[permissions.IsAuthenticated])
+    def update_push_token(self, request):
+        push_token = request.data.get('push_token')
+        if not push_token:
+            return Response({'error': 'Push token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        request.user.push_token = push_token
+        request.user.save()
+
+        return Response({'message': 'Push token updated successfully'}, status=status.HTTP_200_OK)
 
 
 class TicketViewSet(viewsets.ViewSet, generics.ListAPIView):
@@ -435,7 +463,7 @@ class DiscountViewSet(viewsets.ViewSet, generics.ListAPIView):
         return Response(dc.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
+class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView):
     queryset = Invoice.objects.all()
     serializer_class = serializers.InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -477,7 +505,7 @@ class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
 
         event = get_object_or_404(Event, pk=request.data['event_id'], active=True)
         invoice_existed = Invoice.objects.filter(event_id=event, payment_status='success')
-        ticket_remain = event.ticket_quantity - invoice_existed.aggregate(ticket_existed=Sum('ticket_count'))['ticket_existed'] or 0
+        ticket_remain = event.ticket_quantity - (invoice_existed.aggregate(ticket_existed=Sum('ticket_count'))['ticket_existed'] or 0)
         ticket_buy = int(request.data['ticket_count'])
 
         if ticket_buy > ticket_remain:
@@ -487,6 +515,9 @@ class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
         invoice = self.serializer_class(data=request.data, context={'request': request})
         if invoice.is_valid():
             invoice.validated_data['user_id'] = request.user
+            event.ticket_sold = F('ticket_sold') + ticket_buy
+            event.save()
+            event.refresh_from_db()
             invoice.save()
             return Response(invoice.data, status=status.HTTP_201_CREATED)
         return Response(invoice.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -569,10 +600,20 @@ class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
                 title=f"Payment Successful for {invoice.event_id.title}",
                 message=f"Your payment of {invoice.final_amount} for {invoice.event_id.title} was successful. Invoice: {invoice.invoice_code}"
             )
+            send_fcm_notification(
+                user=invoice.user_id,
+                title=f"Payment Successful for {invoice.event_id.title}",
+                message=f"Your payment of {invoice.final_amount} for {invoice.event_id.title} was successful. Invoice: {order_id}"
+            )
         else:
             invoice.payment_status = 'fail'
             invoice.save()
             send_notification(
+                user=invoice.user_id,
+                title=f"Payment Failed for {invoice.event_id.title}",
+                message=f"Your payment attempt for {invoice.event_id.title} failed. Reason: {data.get('message')}"
+            )
+            send_fcm_notification(
                 user=invoice.user_id,
                 title=f"Payment Failed for {invoice.event_id.title}",
                 message=f"Your payment attempt for {invoice.event_id.title} failed. Reason: {data.get('message')}"
@@ -598,9 +639,9 @@ class InvoiceViewSet(viewsets.ViewSet, generics.ListAPIView):
         invoice = get_object_or_404(Invoice, invoice_code=invoice_code)
 
         if result_code == '0':
-            return redirect('payment_success')
+            return redirect('eventup://payment/success')
         else:
-            return redirect('payment_fail')
+            return redirect('eventup://payment/fail')
 
 
 class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):

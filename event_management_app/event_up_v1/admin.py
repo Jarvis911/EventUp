@@ -51,7 +51,7 @@ class ReviewInLine(admin.TabularInline):
 
 
 class EventAdmin(admin.ModelAdmin):
-    list_display = ['id', 'organizer_id', 'category_id', 'title', 'description', 'start_time',
+    list_display = ['id', 'organizer_id', 'category_id', 'title', 'start_time',
                     'end_time', 'location', 'ticket_quantity', 'ticket_price']
     fields = ['organizer_id', 'category_id', 'title', 'description', 'start_time', 'end_time',
               'location', 'latitude', 'longitude', 'ticket_quantity', 'ticket_price', 'image',
@@ -205,6 +205,11 @@ class UserPreferenceAdmin(admin.ModelAdmin):
     ordering = ('-created_date',)
 
 
+class ReviewResponseAdmin(admin.ModelAdmin):
+    list_display = ('review_id', 'organizer_id', 'response')
+    readonly_fields = ('review_id', 'organizer_id', 'response')
+
+
 # class ReviewResponseAdmin(admin.ModelAdmin):
 #     list_display =
 
@@ -224,3 +229,4 @@ admin.site.register(Review, ReviewAdmin)
 admin.site.register(Notification, NotificationAdmin)
 admin.site.register(FavoriteEvent, FavoriteEventAdmin)
 admin.site.register(UserPreference, UserPreferenceAdmin)
+admin.site.register(ReviewResponse, ReviewResponseAdmin)

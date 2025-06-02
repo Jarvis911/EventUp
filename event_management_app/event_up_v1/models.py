@@ -39,6 +39,7 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='participant')
     membership_tier = models.CharField(max_length=20, choices=Membership.choices, null=True, blank=True)
     avatar = CloudinaryField(null=True, blank=True)
+    push_token = models.CharField(max_length=255, blank=True, null=True)
 
     def __str__(self):
         return self.get_full_name()
@@ -87,7 +88,8 @@ class Event(BaseModel):
     longitude = models.FloatField(null=True, blank=True)
     image = CloudinaryField(null=True)
     ticket_quantity = models.PositiveIntegerField()
-    ticket_price = models.DecimalField(max_digits=10, decimal_places=2)
+    ticket_sold = models.PositiveIntegerField(null=True, blank=True, default=0)
+    ticket_price = models.DecimalField(max_digits=10, decimal_places=0)
     views = models.PositiveIntegerField(default=0)
     feature_vector = models.TextField(null=True, blank=True)
 
@@ -275,14 +277,6 @@ class Ticket(BaseModel):
             canvas.close()
             super().save(update_fields=['qr_code'])
 
-            # Send notification to user after ticket created
-            from .utils import send_notification
-            event = self.invoice_id.event_id
-            send_notification(
-                user=self.invoice_id.user_id,
-                title=f"Ticket purchased for {event.title}",
-                message=f"Hi {self.invoice_id.user_id.first_name}, \nYou've successfully purchased a ticket for {event.title} on {event.start_time}."
-            )
         else:
             super().save(*args, **kwargs)
 
@@ -318,7 +312,7 @@ class Review(BaseModel):
 # Notification
 class Notification(BaseModel):
     participant_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'participant'}, null=False)
-    title = models.CharField(max_length=50, null=False)
+    title = models.CharField(max_length=100, null=False)
     message = RichTextField()
     is_read = models.BooleanField(default=False)
     sent_at = models.DateTimeField(null=True)
@@ -349,7 +343,7 @@ class FavoriteEvent(BaseModel):
 
 
 class UserPreference(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='preferences')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'participant'}, related_name='preferences')
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
 
     class Meta:

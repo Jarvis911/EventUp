@@ -1,5 +1,6 @@
 import cloudinary.api
 import os
+import firebase_admin
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -25,7 +26,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://582b-171-252-155-229.ngrok-free.app',
+    'https://4f6c-14-169-26-201.ngrok-free.app',
 ]
 
 # Application definition
@@ -46,6 +47,8 @@ INSTALLED_APPS = [
     'oauth2_provider',
     'debug_toolbar',
     'django_filters',
+    'django_celery_beat',
+    'celery',
 ]
 
 REST_FRAMEWORK = {
@@ -72,6 +75,13 @@ CACHES = {
         }
     }
 }
+
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers.DatabaseScheduler'
+
 
 CKEDITOR_UPLOAD_PATH = "ckeditors/events/"  # Thư mục lưu ảnh và file tải lên
 
@@ -201,8 +211,8 @@ OAUTH2_PROVIDER = {
     'DEFAULT_SCOPES': ['read', 'write'],
 }
 
-CLIENT_ID = '9J87vnUboufZI6oWdhNtd0pLSq7OhEEvketSdt9D'
-CLIENT_SECRET = '9GPR7JTMlk43rXNAp5tbaSawqsEuT6rFEUaO4VAA0JJr3Qc5fSn6WLiZkwAxrmmvjJnIi3H3f4JkumSvjRDS0cyxcFyYJ0Ij5cbfxuDL7M81f8guKv1kWJkhLI7DQ26j'
+CLIENT_ID = 'cAJaTDABqUkqUpGqn0COLHSFYDOFQF5tUCpITJbV'
+CLIENT_SECRET = 'UXh8HYabWc94SDoX0Y9UyuolgQWu80TTYUdTXgipxF5SPc2iFwsa3Cf2jBrhkTquzJwkyhTOuB2A0QFmUBQBsS6iqa1ICUI5LcjmKsmYdPohNbTsHSDOENJyku4wbCzV'
 
 # Sending notifications through email config
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -218,6 +228,6 @@ MOMO_PARTNER_CODE = "MOMOBKUN20180529"
 MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
 MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://582b-171-252-155-229.ngrok-free.app/invoice/momo/ipn/"
-MOMO_REDIRECT_URL = "https://582b-171-252-155-229.ngrok-free.app/invoice/momo/return/"
+MOMO_IPN_URL = "https://4f6c-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://4f6c-14-169-26-201.ngrok-free.app/invoice/momo/return/"
 
