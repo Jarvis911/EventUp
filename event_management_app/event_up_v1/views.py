@@ -13,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from django.db.models.functions import Coalesce
 from datetime import datetime, timedelta
 # Momo
-from .utils import create_momo_payment, verify_momo_payment, send_notification, send_fcm_notification
+from .utils import create_momo_payment, verify_momo_payment, send_notification
 from django.shortcuts import redirect
 from .services import create_tickets_after_payment
 # Custom Swagger
@@ -28,6 +28,8 @@ from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 from django.utils.decorators import method_decorator
 import requests
+from firebase_admin import auth
+from oauth2_provider.models import AccessToken, Application
 
 
 class OrganizerPermission(permissions.BasePermission):
@@ -63,7 +65,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     parser_classes = [parsers.MultiPartParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['category_id', 'location', 'start_time']
-    search_fields = ['title', 'description']
+    search_fields = ['title']
 
     def get_permissions(self):
         if self.action == 'get_my_event':
@@ -155,8 +157,8 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         instance.refresh_from_db()
         serializer = self.get_serializer(instance)
 
-        cache.delete('trending:/event/trend/')
-        cache.delete('recommend:/event/recommended/')
+        # cache.delete('trending:/event/trend/')
+        # cache.delete('recommend:/event/recommended/')
         return Response(serializer.data)
 
     @swagger_auto_schema(
@@ -339,6 +341,57 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
         request.user.save()
 
         return Response({'message': 'Push token updated successfully'}, status=status.HTTP_200_OK)
+
+    @action(methods=['post'], url_path='google-login', detail=False)
+    def google_login(self, request):
+        firebase_token = request.data.get('id_token')
+        if not firebase_token:
+            return Response({'error': 'Missing Firebase ID token'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Verify Firebase ID token
+            decoded_token = auth.verify_id_token(firebase_token)
+            email = decoded_token.get('email')
+            uid = decoded_token.get('sub')  # Google user ID
+            name = decoded_token.get('name', '')
+
+            # Create or get user
+            user, created = User.objects.get_or_create(
+                email=email,
+                defaults={
+                    'username': email.split('@')[0],
+                    'first_name': name,
+                    'role': 'participant',  # Vai trò mặc định
+                }
+            )
+
+            import secrets
+
+            def generate_oauth2_token():
+                return secrets.token_urlsafe(32)
+
+            # Generate OAuth2 token
+            app = Application.objects.get(name='Event Up')  # Match name in admin
+            token, _ = AccessToken.objects.get_or_create(
+                user=user,
+                application=app,
+                expires=timezone.now() + timedelta(seconds=3600),
+                defaults={'token': generate_oauth2_token()}
+            )
+
+            return Response({
+                'access_token': token.token,
+                'expires_in': 3600,
+                'user': {
+                    'username': user.username,
+                    'email': user.email,
+                    'name': user.first_name,
+                    'role': user.role,
+                }
+            }, status=status.HTTP_200_OK)
+        except auth.InvalidIdTokenError:
+            return Response({'error': 'Invalid Firebase ID token'}, status=status.HTTP_401_UNAUTHORIZED)
+
 
 
 class TicketViewSet(viewsets.ViewSet, generics.ListAPIView):
@@ -600,11 +653,6 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView):
                 title=f"Payment Successful for {invoice.event_id.title}",
                 message=f"Your payment of {invoice.final_amount} for {invoice.event_id.title} was successful. Invoice: {invoice.invoice_code}"
             )
-            send_fcm_notification(
-                user=invoice.user_id,
-                title=f"Payment Successful for {invoice.event_id.title}",
-                message=f"Your payment of {invoice.final_amount} for {invoice.event_id.title} was successful. Invoice: {order_id}"
-            )
         else:
             invoice.payment_status = 'fail'
             invoice.save()
@@ -613,11 +661,7 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView):
                 title=f"Payment Failed for {invoice.event_id.title}",
                 message=f"Your payment attempt for {invoice.event_id.title} failed. Reason: {data.get('message')}"
             )
-            send_fcm_notification(
-                user=invoice.user_id,
-                title=f"Payment Failed for {invoice.event_id.title}",
-                message=f"Your payment attempt for {invoice.event_id.title} failed. Reason: {data.get('message')}"
-            )
+
         return Response({'status': 'success'}, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(

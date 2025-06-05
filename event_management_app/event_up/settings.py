@@ -1,6 +1,7 @@
 import cloudinary.api
 import os
 import firebase_admin
+from firebase_admin import credentials
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -14,6 +15,11 @@ MEDIA_URL = '/media/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 STATIC_URL = '/static/'
 
+cred_path = os.path.join(BASE_DIR, 'event_up', 'eventup-98bab-firebase-adminsdk-fbsvc-bceb574688.json')
+cred = credentials.Certificate(cred_path)
+
+firebase_admin.initialize_app(cred)
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
@@ -26,7 +32,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://4f6c-14-169-26-201.ngrok-free.app',
+    'https://605d-14-169-26-201.ngrok-free.app',
 ]
 
 # Application definition
@@ -203,7 +209,6 @@ AUTHENTICATION_BACKENDS = (
 
 OAUTH2_PROVIDER = {
     # 'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
-
     'SCOPES': {
         'read': 'Read scope',
         'write': 'Write scope',
@@ -211,8 +216,8 @@ OAUTH2_PROVIDER = {
     'DEFAULT_SCOPES': ['read', 'write'],
 }
 
-CLIENT_ID = 'cAJaTDABqUkqUpGqn0COLHSFYDOFQF5tUCpITJbV'
-CLIENT_SECRET = 'UXh8HYabWc94SDoX0Y9UyuolgQWu80TTYUdTXgipxF5SPc2iFwsa3Cf2jBrhkTquzJwkyhTOuB2A0QFmUBQBsS6iqa1ICUI5LcjmKsmYdPohNbTsHSDOENJyku4wbCzV'
+CLIENT_ID = 'AZzHCDaw5vMIWUW7f0vuqhVunNNvwe8HhPdpxxBE'
+CLIENT_SECRET = 'pcWoNqX3tQnZsAzPr3ZF4Z1E3WIydx5v5WRwBzxQbQaIFHdMmL29Vkkjd7rg6u926EVPte8rMkHxIrlDmNyfXuS7E6Tb2XkAz6M2RF4yUUug3HXg8IgRfLYJ4Cw0v4yg'
 
 # Sending notifications through email config
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -228,6 +233,6 @@ MOMO_PARTNER_CODE = "MOMOBKUN20180529"
 MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
 MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://4f6c-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
-MOMO_REDIRECT_URL = "https://4f6c-14-169-26-201.ngrok-free.app/invoice/momo/return/"
+MOMO_IPN_URL = "https://605d-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://605d-14-169-26-201.ngrok-free.app/invoice/momo/return/"
 
