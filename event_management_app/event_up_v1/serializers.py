@@ -22,7 +22,6 @@ class CategorySerializer(ModelSerializer):
         fields = ['id', 'name']
 
 
-
 # Serializer for user
 class UserSerializer(ModelSerializer):
     role = serializers.ChoiceField(
