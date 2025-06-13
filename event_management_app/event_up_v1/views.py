@@ -1,43 +1,22 @@
-from . import serializers, services, perms, paginators
+from . import serializers, services, perms, paginators, utils, recommender
 from .models import Category, Event, Ticket, User, Invoice, Discount, Review, FavoriteEvent, UserPreference, ReviewResponse, Notification
-from django.db.models import F, Count, Q, FloatField, ExpressionWrapper, Sum
+from django.db.models import F, Count, Q, FloatField, ExpressionWrapper, Sum, Avg
 from django.utils import timezone
 from rest_framework.response import Response
 from rest_framework import viewsets, generics, parsers, permissions, status, filters
 from rest_framework.decorators import action
-from django.shortcuts import get_object_or_404
-from django.core.exceptions import ObjectDoesNotExist
-from django.db.models import Avg
-from rest_framework.exceptions import ValidationError
+from django.shortcuts import get_object_or_404, redirect
 from django.db.models.functions import Coalesce
-from datetime import datetime, timedelta
-# Momo
-from .utils import create_momo_payment, verify_momo_payment, send_notification
-from django.shortcuts import redirect
-from .services import create_tickets_after_payment
-# Custom Swagger
-from drf_yasg.utils import swagger_auto_schema
-from drf_yasg import openapi
 # Filter backend
 from django_filters.rest_framework import DjangoFilterBackend
 # Recommend
-from . import recommender
-import logging
-from django.views.decorators.cache import cache_page
-from django.core.cache import cache
-from django.utils.decorators import method_decorator
-import requests
 from firebase_admin import auth
-from oauth2_provider.models import AccessToken, Application
 
 
 # Category API view:
 class CategoryViewSet(viewsets.ViewSet, generics.ListAPIView):
     queryset = Category.objects.filter(active=True)
     serializer_class = serializers.CategorySerializer
-
-    def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)
 
 
 # Event API view:
@@ -51,6 +30,11 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
     search_fields = ['title']
 
     def get_permissions(self):
+        if self.action in ['get_reviews']:
+            if self.request.method.__eq__('POST'):
+                return [perms.ParticipantPermission()]
+        if self.action in ['recommended']:
+            return [perms.ParticipantPermission()]
         if self.action in ['get_my_event', 'create']:
             return [perms.OrganizerPermission()]
         if self.action in ['partial_update', 'destroy']:
@@ -71,30 +55,12 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         e = self.get_serializer(event, data=request.data, partial=True)
         if e.is_valid():
             e.save()
-
             invoices = Invoice.objects.filter(event_id=event, payment_status='success').select_related('user_id')
-            push_tokens = [inv.user_id.push_token for inv in invoices if inv.user_id.push_token]
-
-            for token in push_tokens:
-                message = {
-                    "to": token,
-                    "sound": "default",
-                    "title": "Event update",
-                    "body": f"Event '{event.title}' has been updated, please check for more detail information!",
-                }
-                try:
-                    requests.post("https://exp.host/--/api/v2/push/send", json=message)
-                except Exception as ex:
-                    print(f"Push failed for token {token}: {ex}")
-
+            utils.send_push_notification_for_updating(invoices, event)
             return Response(e.data)
         return Response(e.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def retrieve(self, request, *args, **kwargs):
-        pk = kwargs.get('pk')
-        if not pk or not pk.isdigit():
-            return Response({'detail': 'Invalid event ID.'}, status=status.HTTP_400_BAD_REQUEST)
-
         instance = self.get_object()
         instance.views = F('views') + 1
         instance.save(update_fields=['views'])
@@ -120,8 +86,44 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
 
         event.active = False
         event.save()
-
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=['get', 'post'], detail=True, url_path='reviews')
+    def get_reviews(self, request, pk):
+        if request.method.__eq__('POST'):
+            event = self.get_object()
+            rv = serializers.ReviewSerializer(data={
+                'participant_id': request.user.event,
+                'event_id': event,
+                'rating': request.data.get('rating'),
+                'comment': request.data.get('comment')
+            }, context={
+                'request': request,
+                'event': event
+            })
+
+            if rv.is_valid():
+                r = rv.save()
+                avg_rating = event.review_set.aggregate(avg=Avg('rating'))['avg'] or 0.0
+                event.avg_rating = round(avg_rating, 1)
+                event.save(update_fields=['avg_rating'])
+                return Response(r.data, status=status.HTTP_201_CREATED)
+
+        rv = self.get_object().review_set.select_related('participant_id').filter(active=True)
+        return Response(serializers.ReviewSerializer(rv, many=True).data, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=True, url_path='stats')
+    def get_stats(self, request, pk):
+        event = get_object_or_404(Event, pk=pk)
+        reviews = event.review_set.filter(active=True)
+        count = reviews.count()
+        avg_rating = reviews.aggregate(avg_rating=Avg('rating'))['avg_rating'] or 0
+
+        return Response({
+            'event_id': int(event.id),
+            'review_count': count,
+            'average_rating': round(avg_rating, 1) if avg_rating else 0.0
+        }, status=status.HTTP_200_OK)
 
     @action(methods=['get'], detail=False, url_path='trend')
     def trend(self, request):
@@ -139,7 +141,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         serializer = self.get_serializer(events, many=True)
         return Response(serializer.data)
 
-    @action(methods=['get'], detail=False, permission_classes=[perms.ParticipantPermission], url_path='recommended')
+    @action(methods=['get'], detail=False, url_path='recommended')
     def recommended(self, request):
         user = request.user
         try:
@@ -169,21 +171,20 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = serializers.UserSerializer
     parser_classes = [parsers.MultiPartParser]
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
-    @action(methods=['get', 'patch'], url_path="me", detail=False)
+    @action(methods=['get', 'patch'], url_path="me", detail=False,  permission_classes=[permissions.IsAuthenticated])
     def get_current_user(self, request):
-        user = request.user
-        if request.method.__eq__("PATCH"):
-            u = self.serializer_class(user, data=request.data, partial=True)
-            # Cannot change role through API
-            if u.is_valid():
-                if 'role' in u.validated_data:
-                    return Response({'error': 'Cannot change role through API'}, status=status.HTTP_403_FORBIDDEN)
-                u.save()
-                return Response(u.data)
-            return Response(u.errors, status=status.HTTP_400_BAD_REQUEST)
-        return Response(self.serializer_class(user).data)
+        u = request.user
+        if request.method.__eq__('PATCH'):
+            for k, v in request.data.items():
+                if k in ['first_name', 'last_name']:
+                    setattr(u, k, v)
+                elif k.__eq__('password'):
+                    u.set_password(v)
+
+            u.save()
+        return Response(serializers.UserSerializer(u).data)
 
     @action(methods=['post'], url_path='save-push-token', detail=False)
     def update_push_token(self, request):
@@ -196,42 +197,16 @@ class UserViewSet(viewsets.ViewSet, generics.CreateAPIView):
 
         return Response({'message': 'Push token updated successfully'}, status=status.HTTP_200_OK)
 
-    @action(methods=['post'], url_path='google-login', detail=False, permission_classes=[permissions.AllowAny])
+    @action(methods=['post'], url_path='google-login', detail=False)
     def google_login(self, request):
         firebase_token = request.data.get('id_token')
         if not firebase_token:
             return Response({'error': 'Missing Firebase ID token'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Verify Firebase ID token
-            decoded_token = auth.verify_id_token(firebase_token)
-            email = decoded_token.get('email')
-            uid = decoded_token.get('sub')  # Google user ID
-            name = decoded_token.get('name', '')
-
-            # Create or get user
-            user, created = User.objects.get_or_create(
-                email=email,
-                defaults={
-                    'username': email.split('@')[0],
-                    'first_name': name,
-                    'role': 'participant',  # Vai trò mặc định
-                }
-            )
-
-            import secrets
-
-            def generate_oauth2_token():
-                return secrets.token_urlsafe(32)
-
-            # Generate OAuth2 token
-            app = Application.objects.get(name='Event Up')  # Match name in admin
-            token, _ = AccessToken.objects.get_or_create(
-                user=user,
-                application=app,
-                expires=timezone.now() + timedelta(seconds=3600),
-                defaults={'token': generate_oauth2_token()}
-            )
+            data = utils.verify_firebase_token(firebase_token)
+            user, _ = utils.get_or_create_user_from_firebase(data['email'], data['name'])
+            token = utils.generate_oauth2_token(user)
 
             return Response({
                 'access_token': token.token,
@@ -300,42 +275,28 @@ class DiscountViewSet(viewsets.ViewSet, generics.ListAPIView):
         dc = self.get_serializer(discounts, many=True)
         return Response(dc.data)
 
-    @action(methods=['post'], detail=False, url_path='create_discount', permission_classes=[perms.AdminPermission])
-    def create_discount(self, request):
-        dc = self.get_serializer(data=request.data)
-        if dc.is_valid():
-            dc.save()
-            return Response(dc.data, status=status.HTTP_201_CREATED)
-        return Response(dc.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAPIView):
     serializer_class = serializers.InvoiceSerializer
 
     def get_permissions(self):
-        if self.action in ['create']:
+        if self.action in ['create', 'list', 'retrieve']:
             return [perms.ParticipantPermission()]
         if self.action in ['momo_payment']:
             return [perms.ParticipantPermission(), perms.InvoiceOwnerPermission()]
-        return [permissions.AllowAny]
+        return [permissions.AllowAny()]
 
     def get_queryset(self):
         user = self.request.user
-        if user.is_authenticated:
-            if getattr(user, 'role', None) == 'admin':
-                return Invoice.objects.all()
-            return Invoice.objects.filter(user_id=self.request.user)
-
-        return Invoice.objects.none()
+        return Invoice.objects.filter(user_id=user)
 
     def perform_create(self, serializer):
         serializer.save(user_id=self.request.user)
 
     def create(self, request):
         event = get_object_or_404(Event, pk=request.data['event_id'], active=True)
-        invoice_existed = Invoice.objects.filter(event_id=event, payment_status='success')
-        ticket_remain = event.ticket_quantity - (invoice_existed.aggregate(ticket_existed=Sum('ticket_count'))['ticket_existed'] or 0)
         ticket_buy = int(request.data['ticket_count'])
+        ticket_remain = event.ticket_quantity - event.ticket_sold
 
         if ticket_buy > ticket_remain:
             return Response({'detail': 'Your number of tickets you bought is larger than the remaining quantity!'},
@@ -343,11 +304,9 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
 
         invoice = self.serializer_class(data=request.data, context={'request': request})
         if invoice.is_valid():
-            invoice.validated_data['user_id'] = request.user
-            event.ticket_sold = F('ticket_sold') + ticket_buy
-            event.save()
-            event.refresh_from_db()
-            invoice.save()
+            invoice.save(user_id=request.user)
+            Event.objects.filter(pk=event.pk).update(ticket_sold=F('ticket_sold') + ticket_buy)
+
             return Response(invoice.data, status=status.HTTP_201_CREATED)
         return Response(invoice.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -355,7 +314,7 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
     def momo_payment(self, request, pk=None):
         invoice = get_object_or_404(Invoice, pk=pk, user_id=request.user, payment_status='pending')
         try:
-            pay_url = create_momo_payment(invoice, request_id=invoice.invoice_code)
+            pay_url = utils.create_momo_payment(invoice, request_id=invoice.invoice_code)
             return Response({'pay_url': pay_url}, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -365,8 +324,7 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
         data = request.data
 
         # Temporary disable validate signature
-
-        if not verify_momo_payment(data):
+        if not utils.verify_momo_payment(data):
             return Response({'detail': 'Invalid signature'}, status=status.HTTP_400_BAD_REQUEST)
 
         order_id = data.get('orderId')
@@ -377,8 +335,8 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
             invoice.payment_status = 'success'
             invoice.transaction_id = data.get('transId')
             invoice.save()
-            create_tickets_after_payment(invoice)
-            send_notification(
+            services.create_tickets_after_payment(invoice)
+            utils.send_notification(
                 user=invoice.user_id,
                 title=f"Payment Successful for {invoice.event_id.title}",
                 message=f"Your payment of {invoice.final_amount} for {invoice.event_id.title} was successful. Invoice: {invoice.invoice_code}"
@@ -386,7 +344,7 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
         else:
             invoice.payment_status = 'fail'
             invoice.save()
-            send_notification(
+            utils.send_notification(
                 user=invoice.user_id,
                 title=f"Payment Failed for {invoice.event_id.title}",
                 message=f"Your payment attempt for {invoice.event_id.title} failed. Reason: {data.get('message')}"
@@ -402,162 +360,53 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
         invoice = get_object_or_404(Invoice, invoice_code=invoice_code)
 
         if result_code == '0':
-            return redirect('eventup://payment/success')
+            return redirect('payment_success')
         else:
-            return redirect('eventup://payment/fail')
+            return redirect('payment_fail')
 
 
-class ReviewViewSet(viewsets.ViewSet, generics.ListAPIView):
-    def get_permissions(self):
-        if self.action in ['create']:
-            return [perms.ParticipantPermission()]
-        if self.action in ['partial_update', 'destroy']:
-            return [perms.ParticipantPermission(), perms.ReviewOwnerPermission()]
-        return [permissions.AllowAny()]
-
-    def get_serializer_class(self):
-        if self.action == 'get_review_stats':
-            return serializers.ReviewStatsSerializer
-        return serializers.ReviewSerializer
-
-    def get_queryset(self):
-        event_id = self.kwargs.get('event_id')
-        return Review.objects.filter(event_id=event_id, active=True).select_related('participant_id', 'event_id')
-
-    def create(self, request, event_id=None):
-        event = get_object_or_404(Event, pk=event_id, active=True)
-
-        serializer = self.get_serializer(
-            data=request.data,
-            context={'request': request, 'event': event}
-        )
-
-        if serializer.is_valid():
-            serializer.save(
-                participant_id=request.user,
-            )
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def partial_update(self, request, event_id=None, pk=None):
-        event = get_object_or_404(Event, pk=event_id, active=True)
-        review = get_object_or_404(Review, pk=pk, event_id=event, active=True)
-
-        self.check_object_permissions(request, review)
-
-        if request.user != review.participant_id:
-            return Response({"detail": "You do not have permission to edit this review!"}, status=status.HTTP_403_FORBIDDEN)
-
-        serializer = self.get_serializer(
-            review,
-            data=request.data,
-            partial=True,
-            context={'request': request, 'event': event}
-        )
-
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def destroy(self, request, event_id=None, pk=None):
-        event = get_object_or_404(Event, pk=event_id, active=True)
-        review = get_object_or_404(Review, pk=pk, event_id=event, active=True)
-        self.check_object_permissions(request, review)
-
-        review.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-    @action(methods=['get'], detail=False, url_path='stats', permission_classes=[permissions.AllowAny])
-    def get_review_stats(self, request, event_id=None):
-        event = get_object_or_404(Event, pk=event_id, active=True)
-        reviews = Review.objects.filter(event_id=event, active=True)
-        count = reviews.count()
-        avg_rating = reviews.aggregate(avg_rating=Avg('rating'))['avg_rating'] or 0
-
-        return Response({
-            'event_id': int(event.id),
-            'review_count': count,
-            'average_rating': round(avg_rating, 1) if avg_rating else 0.0
-        }, status=status.HTTP_200_OK)
-
-
-class ResponseViewSet(viewsets.GenericViewSet):
-    serializer_class = serializers.ReviewResponseSerializer
+class ReviewViewSet(viewsets.ViewSet, generics.UpdateAPIView):
+    queryset = Review.objects.filter(active=True)
+    serializer_class = serializers.ReviewSerializer
 
     def get_permissions(self):
-        if self.action in ['create']:
-            return [perms.OrganizerPermission]
-        if self.action in ['partial_update', 'destroy']:
-            return [perms.OrganizerPermission, perms.ResponseOwnerPermission]
-        return [permissions.AllowAny]
+        if self.action == 'get_response':
+            if self.request.method.__eq__('GET'):
+                return [permissions.AllowAny()]
+            elif self.request.method.__eq__('POST'):
+                return [perms.OrganizerPermission()]
+        elif self.action in ['update', 'partial_update', 'destroy']:
+            return [perms.ReviewOwnerPermission(), perms.ParticipantPermission()]
 
-    def get_queryset(self):
-        event_id = self.kwargs.get('event_id')
-        review_id = self.kwargs.get('review_id')
-        return ReviewResponse.objects.filter(review_id=review_id, review_id__event_id=event_id, active=True)
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        event = instance.event_id
+        instance.delete()
+        # Recalculate avg_rating
+        reviews = Review.objects.filter(event_id=event.id, active=True)
+        event.avg_rating = round(reviews.aggregate(avg=Avg('rating'))['avg'] or 0.0, 1)
+        event.save(update_fields=['avg_rating'])
 
-    def perform_create(self, serializer):
-        review = get_object_or_404(Review, pk=self.kwargs['review_id'])
-        serializer.save(organizer_id=self.request.user, review_id=review)
-
-    def get_review(self):
-        event_id = self.kwargs.get('event_id')
-        review_id = self.kwargs.get('review_id')
-        return get_object_or_404(Review, pk=review_id, event_id=event_id, active=True)
-
-    def list(self, request, *args, **kwargs):
-        review = self.get_review()
-        responses = review.responses.filter(active=True)
-        serializer = self.get_serializer(responses, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    def create(self, request, *args, **kwargs):
-        review = self.get_review()
-        if ReviewResponse.objects.filter(review_id=review, active=True).exists():
-            return Response({"detail": "You have already response this review"}, status=status.HTTP_400_BAD_REQUEST)
-
-        serializer = self.get_serializer(
-            data=request.data,
-            context={'request': request, 'review': review}
-        )
-
-        if serializer.is_valid():
-            self.perform_create(serializer)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def partial_update(self, request, pk=None, *args, **kwargs):
-        review = self.get_review()
-        responses = review.responses.filter(organizer_id=request.user, active=True)
-
-        self.check_object_permissions(request, responses)
-
-        if not responses.exists():
-            return Response({"detail": "No active response found to update."}, status=status.HTTP_404_NOT_FOUND)
-        response = responses.first()
-        serializer = self.get_serializer(
-            response,
-            data=request.data,
-            partial=True,
-            context={'request': request, 'review': review}
-        )
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def destroy(self, request, pk=None, *args, **kwargs):
-        review = self.get_review()
-        responses = review.responses.filter(organizer_id=request.user, active=True)
-        self.check_object_permissions(request, responses)
-
-        if not responses.exists():
-            return Response({"detail": "No active response found to delete."}, status=status.HTTP_404_NOT_FOUND)
-        response = responses.first()
-        response.active = False
-        response.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(methods=['get', 'post'], detail=True, url_path='response')
+    def get_response(self, request, pk):
+        if request.method.__eq__('POST'):
+            rs = serializers.ReviewResponseSerializer(data={
+                'organizer_id': request.user.pk,
+                'review_id': pk,
+                'response': request.data.get('response')
+            }, context={
+                'request': request,
+                'review': pk
+            })
+
+            rs.is_valid(raise_exception=True)
+            response = rs.save()
+            return Response(response.data, status=status.HTTP_201_CREATED)
+
+        responses = self.get_object().reviewresponse_set.filter(active=True)
+        return Response(serializers.ReviewSerializer(responses).data, status=status.HTTP_200_OK)
 
 
 class ReportViewSet(viewsets.ViewSet):
@@ -566,52 +415,15 @@ class ReportViewSet(viewsets.ViewSet):
     @action(methods=['get'], detail=False, url_path='organizer/dashboard')
     def organizer_dashboard(self, request):
         organizer = request.user
-        events = Event.objects.filter(organizer_id=organizer, active=True)
-
-        # Dashboard data
-        total_tickets = Invoice.objects.filter(
-            event_id__in=events,
-            payment_status='success'
-        ).aggregate(total=Sum('ticket_count'))['total'] or 0
-
-        total_revenue = Invoice.objects.filter(
-            event_id__in=events,
-            payment_status='success'
-        ).aggregate(total=Sum('amount'))['total'] or 0
-
-        total_views = events.aggregate(total=Sum('views'))['total'] or 0
-
-        # Bar chart data
-        event_data = []
-        for event in events:
-            avg_rating = Review.objects.filter(
-                event_id=event,
-                active=True
-            ).aggregate(avg=Avg('rating'))['avg'] or 0
-
-            event_data.append({
-                'event_id': event.id,
-                'event_title': event.title,
-                'views': event.views,
-                'average_rating': round(avg_rating, 1)
-            })
-
-        data = {
-            'total_tickets': total_tickets,
-            'total_revenue': total_revenue,
-            'total_views': total_views,
-            'events': event_data
-        }
-
-        serializer = serializers.OrganizerDashboardSerializer(data)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        data = utils.get_organizer_dashboard_data(organizer)
+        dashboard = serializers.OrganizerDashboardSerializer(data)
+        return Response(dashboard.data, status=status.HTTP_200_OK)
 
     @action(methods=['get'], url_path='organizer/monthly', detail=False)
     def monthly_report(self, request):
         organizer = request.user
         month = request.query_params.get('month')
         year = request.query_params.get('year')
-
         if not (month and year):
             return Response({'detail': 'Month and year are required!!'},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -625,90 +437,49 @@ class ReportViewSet(viewsets.ViewSet):
             return Response({'detail': 'Invalid month or year format!!'},
                             status=status.HTTP_400_BAD_REQUEST)
 
-        start_date = timezone.make_aware(datetime(year, month, 1))
-        end_date = (start_date + timedelta(days=31)).replace(day=1) - timedelta(seconds=1)
-
-        invoices = Invoice.objects.filter(
-            event_id__organizer_id=organizer,
-            payment_status='success',
-            created_at__range=[start_date, end_date]
-        )
-
-        # Ticket data to draw chart
-        ticket_data = invoices.values('event_id', 'event_id__title').annotate(ticket_count=Sum('ticket_count')).order_by('-ticket_count')
-        # Revenue data to draw chart
-        revenue_data = invoices.values('event_id', 'event_id__title').annotate(revenue=Sum('amount')).order_by('-revenue')
-
-        data = {
-            'ticket_pie_chart': [
-                {'event_id': item['event_id'],
-                 'event_title': item['event_id__title'],
-                 'value': item['ticket_count']}
-                for item in ticket_data
-            ],
-            'revenue_pie_chart': [
-                {'event_id': item['event_id'],
-                 'event_title': item['event_id__title'],
-                 'value': float(item['revenue'])}
-                for item in revenue_data
-            ]
-        }
-
-        serializer = serializers.MonthlyReportSerializer(data)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        data = utils.get_monthly_report_data(organizer, year, month)
+        report = serializers.MonthlyReportSerializer(data)
+        return Response(report.data, status=status.HTTP_200_OK)
 
 
-class FavoriteEventViewSet(viewsets.GenericViewSet):
-    queryset = FavoriteEvent.objects.all()
+class FavoriteEventViewSet(viewsets.ViewSet, generics.DestroyAPIView, generics.ListAPIView):
     serializer_class = serializers.FavoriteEventSerializer
+
+    def get_queryset(self):
+        return FavoriteEvent.objects.filter(participant_id=self.request.user).select_related('event_id__category_id')
 
     def get_permissions(self):
         if self.action in ['destroy']:
-            return [perms.ParticipantPermission, perms.FavoriteOwnerPermission]
-        return [perms.ParticipantPermission]
-
-    def list(self, request):
-        favorites = FavoriteEvent.objects.filter(participant_id=request.user).select_related('event_id__category_id')
-        serializer = self.get_serializer(favorites, many=True)
-        return Response(serializer.data)
+            return [perms.ParticipantPermission(), perms.FavoriteOwnerPermission()]
+        return [perms.ParticipantPermission()]
 
     def create(self, request):
-        serializer = self.get_serializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid(raise_exception=True):
             event_id = serializer.validated_data['event_id']
             participant = request.user
 
             if FavoriteEvent.objects.filter(participant_id=participant, event_id=event_id).exists():
-                return Response({'detail': 'You have already favorited this event.'},
-                                status=status.HTTP_400_BAD_REQUEST)
+                 return Response({'detail': 'You have already favorited this event.'},
+                                            status=status.HTTP_400_BAD_REQUEST)
 
             serializer.save(participant_id=participant)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    def destroy(self, request, pk=None):
-        favorite = get_object_or_404(FavoriteEvent, participant_id=request.user, event_id__id=pk)
-        favorite.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class UserPreferenceViewSet(viewsets.GenericViewSet):
+class UserPreferenceViewSet(viewsets.GenericViewSet, generics.CreateAPIView):
     queryset = UserPreference.objects.all()
     permission_classes = [perms.ParticipantPermission]
     serializer_class = serializers.UserPreferenceSerializer
 
-    def list(self, request):
-        preferences = UserPreference.objects.filter(user=request.user)
-        serializer = self.get_serializer(preferences, many=True)
-        return Response(serializer.data)
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
-    def create(self, request):
-        serializer = self.get_serializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            serializer.save(user=request.user)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class ResponseViewSet(viewsets.GenericViewSet, generics.UpdateAPIView, generics.DestroyAPIView):
+    queryset = ReviewResponse.objects.filter(active=True)
+    serializer_class = serializers.ReviewResponseSerializer
+    permission_classes = [perms.OrganizerPermission, perms.ResponseOwnerPermission]
 
 
 

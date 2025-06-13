@@ -32,7 +32,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://605d-14-169-26-201.ngrok-free.app',
+    'https://b7a7-14-187-40-155.ngrok-free.app',
 ]
 
 # Application definition
@@ -229,10 +229,10 @@ EMAIL_HOST_PASSWORD = 'kxod ytzu yzmp xfno'
 DEFAULT_FROM_EMAIL = 'Event Up <triho753@gmail.com>'
 
 # MoMo Sandbox configuration
-MOMO_PARTNER_CODE = "MOMOBKUN20180529"
-MOMO_ACCESS_KEY = "klm05TvNBzhg7h7j"
-MOMO_SECRET_KEY = "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa"
+MOMO_PARTNER_CODE = "MOMO"
+MOMO_ACCESS_KEY = "F8BBA842ECF85"
+MOMO_SECRET_KEY = "K951B6PE1waDMi640xX08PD3vg6EkVlz"
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://605d-14-169-26-201.ngrok-free.app/invoice/momo/ipn/"
-MOMO_REDIRECT_URL = "https://605d-14-169-26-201.ngrok-free.app/invoice/momo/return/"
+MOMO_IPN_URL = "https://b7a7-14-187-40-155.ngrok-free.app/invoice/momo/ipn/"
+MOMO_REDIRECT_URL = "https://b7a7-14-187-40-155.ngrok-free.app/invoice/momo/return/"
 
