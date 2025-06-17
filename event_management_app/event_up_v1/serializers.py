@@ -183,7 +183,7 @@ class ReviewResponseSerializer(ModelSerializer):
     class Meta:
         model = ReviewResponse
         fields = ['id', 'review_id', 'organizer', 'organizer_id', 'active']
-        read_only_fields = ['id', 'review_id', 'organizer', 'organizer_id', 'active']
+        read_only_fields = ['id', 'organizer', 'active']
 
     def validate(self, data):
         request = self.context.get('request')
@@ -198,11 +198,12 @@ class ReviewResponseSerializer(ModelSerializer):
 
 class ReviewSerializer(ModelSerializer):
     participant = UserSerializer(source='participant_id', read_only=True)
+    response = ReviewResponseSerializer(read_only=True, many=False)
 
     class Meta:
         model = Review
-        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date', 'active']
-        read_only_fields = ['id', 'participant', 'event_id', 'created_date', 'active']
+        fields = ['id', 'participant', 'participant_id', 'event_id', 'response', 'rating', 'comment', 'created_date', 'active']
+        read_only_fields = ['id', 'participant', 'created_date', 'active']
 
     def validate(self, data):
         request = self.context.get('request')
@@ -215,9 +216,8 @@ class ReviewSerializer(ModelSerializer):
         ).exists():
             raise serializers.ValidationError({"event_id": "You must buy a ticket to reviews!"})
 
-        if self.instance is None:
-            if Review.objects.filter(participant_id=request.user, event_id=event).exists():
-                raise serializers.ValidationError({"event_id": "You have already reviewed this event!"})
+        if Review.objects.filter(participant_id=request.user, event_id=event).exists():
+            raise serializers.ValidationError({"event_id": "You have already reviewed this event!"})
         return data
 
 

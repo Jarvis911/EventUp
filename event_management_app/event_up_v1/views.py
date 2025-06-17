@@ -7,6 +7,7 @@ from rest_framework import viewsets, generics, parsers, permissions, status, fil
 from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404, redirect
 from django.db.models.functions import Coalesce
+from django.http import HttpResponseRedirect
 # Filter backend
 from django_filters.rest_framework import DjangoFilterBackend
 # Recommend
@@ -43,7 +44,7 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        return qs.select_related('category_id')
+        return qs.select_related('category_id').order_by('-start_time')
 
     def perform_create(self, serializer):
         serializer.save(organizer_id=self.request.user)
@@ -93,8 +94,8 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
         if request.method.__eq__('POST'):
             event = self.get_object()
             rv = serializers.ReviewSerializer(data={
-                'participant_id': request.user.event,
-                'event_id': event,
+                'participant_id': request.user.id,
+                'event_id': event.id,
                 'rating': request.data.get('rating'),
                 'comment': request.data.get('comment')
             }, context={
@@ -102,12 +103,12 @@ class EventViewSet(viewsets.ViewSet, generics.ListCreateAPIView):
                 'event': event
             })
 
-            if rv.is_valid():
+            if rv.is_valid(raise_exception=True):
                 r = rv.save()
                 avg_rating = event.review_set.aggregate(avg=Avg('rating'))['avg'] or 0.0
                 event.avg_rating = round(avg_rating, 1)
                 event.save(update_fields=['avg_rating'])
-                return Response(r.data, status=status.HTTP_201_CREATED)
+                return Response(serializers.ReviewSerializer(r).data, status=status.HTTP_201_CREATED)
 
         rv = self.get_object().review_set.select_related('participant_id').filter(active=True)
         return Response(serializers.ReviewSerializer(rv, many=True).data, status=status.HTTP_200_OK)
@@ -288,7 +289,7 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
 
     def get_queryset(self):
         user = self.request.user
-        return Invoice.objects.filter(user_id=user)
+        return Invoice.objects.filter(user_id=user).order_by('-created_at')
 
     def perform_create(self, serializer):
         serializer.save(user_id=self.request.user)
@@ -352,18 +353,6 @@ class InvoiceViewSet(viewsets.ViewSet, generics.RetrieveAPIView, generics.ListAP
 
         return Response({'status': 'success'}, status=status.HTTP_200_OK)
 
-    @action(methods=['get'], detail=False, url_path='momo/return')
-    def momo_return(self, request):
-        order_id = request.query_params.get('orderId')
-        result_code = request.query_params.get('resultCode')
-        invoice_code = order_id.split('-')[0]
-        invoice = get_object_or_404(Invoice, invoice_code=invoice_code)
-
-        if result_code == '0':
-            return redirect('payment_success')
-        else:
-            return redirect('payment_fail')
-
 
 class ReviewViewSet(viewsets.ViewSet, generics.UpdateAPIView):
     queryset = Review.objects.filter(active=True)
@@ -393,7 +382,7 @@ class ReviewViewSet(viewsets.ViewSet, generics.UpdateAPIView):
     def get_response(self, request, pk):
         if request.method.__eq__('POST'):
             rs = serializers.ReviewResponseSerializer(data={
-                'organizer_id': request.user.pk,
+                'organizer_id': request.user.id,
                 'review_id': pk,
                 'response': request.data.get('response')
             }, context={
@@ -403,10 +392,10 @@ class ReviewViewSet(viewsets.ViewSet, generics.UpdateAPIView):
 
             rs.is_valid(raise_exception=True)
             response = rs.save()
-            return Response(response.data, status=status.HTTP_201_CREATED)
+            return Response(serializers.ReviewResponseSerializer(response).data, status=status.HTTP_201_CREATED)
 
         responses = self.get_object().reviewresponse_set.filter(active=True)
-        return Response(serializers.ReviewSerializer(responses).data, status=status.HTTP_200_OK)
+        return Response(serializers.ReviewResponseSerializer(responses, many=True).data, status=status.HTTP_200_OK)
 
 
 class ReportViewSet(viewsets.ViewSet):
