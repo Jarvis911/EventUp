@@ -5,11 +5,13 @@ from .models import Ticket, Invoice, User, Membership
 from django.db.models import Sum
 
 
-def check_in_ticket(qr_code_data):
+def check_in_ticket(qr_code_data, validate_only=False):
     signer = Signer()
     try:
         ticket_id = signer.unsign(qr_code_data)
         ticket = Ticket.objects.get(id=ticket_id)
+        if validate_only:
+            return {'success': True, 'ticket_id': ticket.id}
         if ticket.status == 'booked':
             ticket.status = 'checked-in'
             ticket.checked_in_at = timezone.now()
