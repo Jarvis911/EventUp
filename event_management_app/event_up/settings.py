@@ -1,5 +1,6 @@
 import cloudinary.api
 import os
+import environ
 import firebase_admin
 from firebase_admin import credentials
 
@@ -22,9 +23,13 @@ firebase_admin.initialize_app(cred)
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
+env = environ.Env(
+    DEBUG=(bool, False)
+)
+environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-(*r_4w(vgrj=4pkz@66$*f)5mr+wk64i^pn=hc+q1hm9yc34g!'
+SECRET_KEY = env('DJANGO_SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -32,7 +37,7 @@ DEBUG = True
 ALLOWED_HOSTS = ['*']
 
 CSRF_TRUSTED_ORIGINS = [
-    'https://7476-115-73-217-251.ngrok-free.app',
+    'https://1ef425255af8.ngrok-free.app',
 ]
 
 # Application definition
@@ -123,9 +128,9 @@ INTERNAL_IPS = [
 
 # Configuration
 cloudinary.config(
-    cloud_name="dpfbtypxx",
-    api_key="191724613981669",
-    api_secret="4fgFs1HJMoFsbFnaG61IMCW10IM",  # Click 'View API Keys' above to copy your API secret
+    cloud_name=env('CLOUDINARY_NAME'),
+    api_key=env('CLOUDINARY_API_KEY'),
+    api_secret=('CLOUDINARY_API_SECRET'),
     secure=True
 )
 
@@ -157,9 +162,9 @@ WSGI_APPLICATION = 'event_up.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'eventdb',
-        'USER': 'root',
-        'PASSWORD': '2004@Conmadoi',
+        'NAME': env('DB_NAME'),
+        'USER': env('DB_USER'),
+        'PASSWORD': env('DB_PASSWORD'),
         'HOST': ''
     }
 }
@@ -208,7 +213,7 @@ AUTHENTICATION_BACKENDS = (
 )
 
 OAUTH2_PROVIDER = {
-    # 'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
+    'OAUTH2_BACKEND_CLASS': 'oauth2_provider.oauth2_backends.JSONOAuthLibCore',
     'SCOPES': {
         'read': 'Read scope',
         'write': 'Write scope',
@@ -216,24 +221,24 @@ OAUTH2_PROVIDER = {
     'DEFAULT_SCOPES': ['read', 'write'],
 }
 
-CLIENT_ID = 'AZzHCDaw5vMIWUW7f0vuqhVunNNvwe8HhPdpxxBE'
-CLIENT_SECRET = 'pcWoNqX3tQnZsAzPr3ZF4Z1E3WIydx5v5WRwBzxQbQaIFHdMmL29Vkkjd7rg6u926EVPte8rMkHxIrlDmNyfXuS7E6Tb2XkAz6M2RF4yUUug3HXg8IgRfLYJ4Cw0v4yg'
+CLIENT_ID = env('CLIENT_ID')
+CLIENT_SECRET = env('CLIENT_SECRET_KEY')
 
 # Sending notifications through email config
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'triho753@gmail.com'
-EMAIL_HOST_PASSWORD = 'kxod ytzu yzmp xfno'
+EMAIL_HOST_USER = env('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = 'Event Up <triho753@gmail.com>'
 
 ALLOWED_REDIRECT_SCHEMES = ['http', 'https', 'eventup']
 # MoMo Sandbox configuration
-MOMO_PARTNER_CODE = "MOMO"
-MOMO_ACCESS_KEY = "F8BBA842ECF85"
-MOMO_SECRET_KEY = "K951B6PE1waDMi640xX08PD3vg6EkVlz"
+MOMO_PARTNER_CODE = env('MOMO_PARTNER_CODE')
+MOMO_ACCESS_KEY = env('MOMO_ACCESS_KEY')
+MOMO_SECRET_KEY = env('MOMO_SECRET_KEY')
 MOMO_ENDPOINT = "https://test-payment.momo.vn/v2/gateway/api/create"
-MOMO_IPN_URL = "https://7476-115-73-217-251.ngrok-free.app/invoice/momo/ipn/"
+MOMO_IPN_URL = "https://1ef425255af8.ngrok-free.app/invoice/momo/ipn/"
 MOMO_REDIRECT_URL = "eventup://payment-result"
 
