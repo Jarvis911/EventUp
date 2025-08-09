@@ -1,5 +1,6 @@
 from rest_framework.serializers import ModelSerializer
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 from django.utils import timezone
 from .models import Event, Category, Ticket, User, Discount, Invoice, Review, FavoriteEvent, UserPreference, ReviewResponse,  Notification
 from django.core.signing import Signer
@@ -22,7 +23,6 @@ class CategorySerializer(ModelSerializer):
         fields = ['id', 'name']
 
 
-
 # Serializer for user
 class UserSerializer(ModelSerializer):
     role = serializers.ChoiceField(
@@ -30,23 +30,6 @@ class UserSerializer(ModelSerializer):
         default='participant'
     )
     avatar = serializers.ImageField(required=False, allow_null=True)
-
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        data['avatar'] = instance.avatar.url if instance.avatar else None
-        return data
-
-    # Check if user try to send invalid fields
-    def to_internal_value(self, data):
-        validated_data = super().to_internal_value(data)
-
-        unknown_fields = set(data.keys()) - set(self.fields.keys())
-        if unknown_fields:
-            raise serializers.ValidationError({
-                field: 'This field is not allowed.' for field in unknown_fields
-            })
-
-        return validated_data
 
     class Meta:
         model = User
@@ -57,31 +40,26 @@ class UserSerializer(ModelSerializer):
             'email': {'required': True}
         }
 
-    # Encrypt password before save to database
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['avatar'] = instance.avatar.url if instance.avatar else None
+        return data
+
     def create(self, validated_data):
-        avatar = validated_data.pop('avatar', None)
-
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password'],
-            first_name=validated_data.get('first_name', ''),
-            last_name=validated_data.get('last_name', ''),
-            role=validated_data['role']
-        )
-
-        if avatar:
-            user.avatar = avatar
+        data = validated_data.copy()
+        user = User(**data)
+        user.set_password(user.password)
         user.save()
-
         return user
 
     def update(self, instance, validated_data):
-        if 'password' in validated_data:
-            instance.set_password(validated_data.pop('password'))
-        if 'avatar' in validated_data:
-            instance.avatar = validated_data.pop('avatar')
-        return super().update(instance, validated_data)
+        data = validated_data.copy()
+        if data.password:
+            instance.set_password(data.password)
+        for attr, value in data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
 
 # Serializer for Event
@@ -95,24 +73,20 @@ class EventSerializer(BaseSerializer):
     class Meta:
         model = Event
         fields = ['id', 'title', 'category', 'category_id', 'organizer_id', 'organizer', 'description', 'start_time',
-                  'end_time', 'location', 'image', 'ticket_quantity', 'ticket_sold', 'ticket_price', 'latitude', 'longitude']
-        extra_kwargs = {
-            'organizer_id': {'read_only': True},
-            'latitude': {'read_only': True},
-            'longitude': {'read_only': True}
-        }
+                  'end_time', 'location', 'image', 'ticket_quantity', 'ticket_sold', 'ticket_price', 'latitude', 'longitude', 'avg_rating']
+        read_only_fields = ['organizer_id', 'latitude', 'longitude', 'avg_rating']
 
     # Calling API to update latitude and longitude when change location from API request
-    def _update_geocoding(self, validated_data):
+    def update_geocoding(self, validated_data):
         location = validated_data.get('location')
         if location and not (validated_data.get('latitude') and validated_data.get('longitude')):
             api_key = "67e3b02f3fa84067694021akgad948d"
             url = f"https://geocode.maps.co/search?q={location}&api_key={api_key}"
             try:
                 response = requests.get(url)
-                response.raise_for_status()  # Raise lỗi nếu HTTP status không phải 200
+                response.raise_for_status()
                 data = response.json()
-                if data and isinstance(data, list) and len(data) > 0:  # Kiểm tra response hợp lệ
+                if data and isinstance(data, list) and len(data) > 0:
                     validated_data['latitude'] = float(data[0]['lat'])
                     validated_data['longitude'] = float(data[0]['lon'])
                 else:
@@ -124,26 +98,15 @@ class EventSerializer(BaseSerializer):
 
         return validated_data
 
-    def to_internal_value(self, data):
-        validated_data = super().to_internal_value(data)
-
-        unknown_fields = set(data.keys()) - set(self.fields.keys())
-        if unknown_fields:
-            raise serializers.ValidationError({
-                field: 'This field is not allowed.' for field in unknown_fields
-            })
-
-        return validated_data
-
     def create(self, validated_data):
-        validated_data = self._update_geocoding(validated_data)
+        validated_data = self.update_geocoding(validated_data)
         return Event.objects.create(**validated_data)
 
     def update(self, instance, validated_data):
         if 'location' in validated_data and validated_data['location'] != instance.location:
             validated_data.pop('latitude', None)
             validated_data.pop('longitude', None)
-            validated_data = self._update_geocoding(validated_data)
+            validated_data = self.update_geocoding(validated_data)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
@@ -175,24 +138,10 @@ class TicketSerializer(ModelSerializer):
 
 
 class DiscountSerializer(ModelSerializer):
-    # Check if user try to send invalid fields
-    def to_internal_value(self, data):
-        validated_data = super().to_internal_value(data)
-
-        unknown_fields = set(data.keys()) - set(self.fields.keys())
-        if unknown_fields:
-            raise serializers.ValidationError({
-                field: 'This field is not allowed.' for field in unknown_fields
-            })
-
-        return validated_data
-
     class Meta:
         model = Discount
         fields = '__all__'
-        extra_kwargs = {
-            'used_count': {'read_only': True},
-        }
+        read_only_fields = ['used_count']
 
 
 class InvoiceSerializer(ModelSerializer):
@@ -204,7 +153,6 @@ class InvoiceSerializer(ModelSerializer):
         model = Invoice
         fields = ['id', 'invoice_code', 'user_id', 'event_id', 'event', 'discount_id', 'ticket_count', 'amount', 'discount_amount', 'final_amount',
                   'payment_status', 'transaction_id', 'created_at']
-
         read_only_fields = [
             'id', 'invoice_code', 'user_id', 'amount', 'discount_amount', 'final_amount', 'payment_status', 'transaction_id',
             'created_at'
@@ -234,65 +182,32 @@ class ReviewResponseSerializer(ModelSerializer):
 
     class Meta:
         model = ReviewResponse
-        fields = ['id', 'review_id', 'organizer', 'organizer_id', 'response', 'active']
-        read_only_fields = ['id', 'review_id', 'organizer', 'organizer_id', 'active']
+        fields = ['id', 'review_id', 'organizer', 'organizer_id', 'active']
+        read_only_fields = ['id', 'organizer', 'active']
 
     def validate(self, data):
+        request = self.context.get('request')
         review = self.context.get('review')
-        if not review:
-            raise serializers.ValidationError("Review is required!")
+
+        review = Review.objects.get(pk=review, active=True)
+        if review.event_id.organizer_id != request.user:
+            raise ValidationError("You do not have permission to response to this review!")
+
         return data
-
-    def to_internal_value(self, data):
-        validated_data = super().to_internal_value(data)
-
-        unknown_fields = set(data.keys()) - set(self.fields.keys())
-        if unknown_fields:
-            raise serializers.ValidationError({
-                field: 'This field is not allowed.' for field in unknown_fields
-            })
-
-        return validated_data
 
 
 class ReviewSerializer(ModelSerializer):
     participant = UserSerializer(source='participant_id', read_only=True)
-    response = serializers.SerializerMethodField()
+    response = ReviewResponseSerializer(read_only=True, many=False)
 
     class Meta:
         model = Review
-        fields = ['id', 'participant', 'event_id', 'rating', 'comment', 'created_date', 'response', 'active']
-        read_only_fields = ['id', 'participant', 'event_id', 'created_date', 'response', 'active']
-
-    def to_internal_value(self, data):
-        validated_data = super().to_internal_value(data)
-
-        unknown_fields = set(data.keys()) - set(self.fields.keys())
-        if unknown_fields:
-            raise serializers.ValidationError({
-                field: 'This field is not allowed.' for field in unknown_fields
-            })
-
-        return validated_data
-
-    def get_response(self, obj):
-        active_response = obj.responses.filter(active=True).first()
-        if active_response:
-            return ReviewResponseSerializer(active_response).data
-        return None
+        fields = ['id', 'participant', 'participant_id', 'event_id', 'response', 'rating', 'comment', 'created_date', 'active']
+        read_only_fields = ['id', 'participant', 'created_date', 'active']
 
     def validate(self, data):
         request = self.context.get('request')
         event = self.context.get('event')
-
-        if not event:
-            raise serializers.ValidationError({"event_id": "Event is required to write reviews!"})
-
-        if not request.user.is_authenticated:
-            raise serializers.ValidationError({"participant_id": "Authentication is required!"})
-
-        if request.user.role != 'participant':
-            raise serializers.ValidationError({"participant_id": "Only participants can write reviews!"})
 
         if not Invoice.objects.filter(
             user_id=request.user,
@@ -301,11 +216,8 @@ class ReviewSerializer(ModelSerializer):
         ).exists():
             raise serializers.ValidationError({"event_id": "You must buy a ticket to reviews!"})
 
-        if self.instance is None:
-            if Review.objects.filter(participant_id=request.user, event_id=event).exists():
-                raise serializers.ValidationError({"event_id": "You have already reviewed this event!"})
-
-        data['event_id'] = event
+        if Review.objects.filter(participant_id=request.user, event_id=event).exists():
+            raise serializers.ValidationError({"event_id": "You have already reviewed this event!"})
         return data
 
 
@@ -335,14 +247,6 @@ class FavoriteEventSerializer(ModelSerializer):
         fields = ['id', 'event', 'event_id', 'created_date']
         read_only_fields = ['id', 'created_date']
 
-    def validate(self, data):
-        user = self.context['request'].user
-
-        if getattr(user, 'role', None) != 'participant':
-            raise serializers.ValidationError('Only participant can favorite events!')
-
-        return data
-
 
 class UserPreferenceSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
@@ -356,16 +260,6 @@ class UserPreferenceSerializer(serializers.ModelSerializer):
         model = UserPreference
         fields = ['id', 'user', 'category', 'category_id', 'created_date']
         read_only_fields = ['id', 'user', 'created_date']
-
-    def validate(self, data):
-        user = self.context['request'].user
-        if user.role != 'participant':
-            raise serializers.ValidationError('Only participants can set preferences.')
-
-        category = data.get('category')
-        if UserPreference.objects.filter(user=user, category=category).exists():
-            raise serializers.ValidationError('This category is already in your preferences.')
-        return data
 
 
 class NotificationSerializer(serializers.ModelSerializer):

@@ -91,6 +91,7 @@ class Event(BaseModel):
     ticket_sold = models.PositiveIntegerField(null=True, blank=True, default=0)
     ticket_price = models.DecimalField(max_digits=10, decimal_places=0)
     views = models.PositiveIntegerField(default=0)
+    avg_rating = models.FloatField(null=True, blank=True, default=0.0)
     feature_vector = models.TextField(null=True, blank=True)
 
     class Meta:
@@ -335,12 +336,6 @@ class FavoriteEvent(BaseModel):
             models.Index(fields=['participant_id', 'event_id'])
         ]
 
-    def clean(self):
-        if self.participant_id.role != 'participant':
-            raise ValidationError('Only participant can favorite events!')
-        if not self.event_id.active:
-            raise ValidationError('Cannot favorite an inactive event!')
-
 
 class UserPreference(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'participant'}, related_name='preferences')
@@ -352,7 +347,7 @@ class UserPreference(BaseModel):
 
 class ReviewResponse(BaseModel):
     review_id = models.ForeignKey(Review, on_delete=models.CASCADE, related_name='responses')
-    organizer_id = models.ForeignKey(User, on_delete=models.CASCADE)
+    organizer_id = models.ForeignKey(User, on_delete=models.CASCADE, limit_choices_to={'role': 'organizer'})
     response = RichTextField()
 
     indexes = [
@@ -360,13 +355,11 @@ class ReviewResponse(BaseModel):
     ]
 
     def clean(self):
-        if self.organizer_id.role != 'organizer':
-            raise ValidationError("Only organizer can respond to reviews")
         if self.review_id.organizer_id != self.organizer_id:
             raise ValidationError("Organizer can only respond to reviews of their own events!")
 
     def __str__(self):
-        return f"Response to Review {self.review_id.id} by {self.organizer_id.name}"
+        return f"Response to Review {self.review_id.id} by {self.organizer_id.first_name}"
 
 
 
